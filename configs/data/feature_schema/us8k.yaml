@@ -1,0 +1,9 @@
+_target_: src.data.components.containers.FeatureSchema
+
+numerical:
+  _target_: src.data.components.containers.NumericalFeatureInfo
+  feature_names:
+    - mel_spectrogram
+  torch_dtype:
+    _target_: src.utils.utils.torch_dtype
+    dtype: float32

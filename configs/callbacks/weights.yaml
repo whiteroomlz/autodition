@@ -1,0 +1,7 @@
+weights:
+  _target_: src.utils.callbacks.WeightsCallback
+  output_dir: ${paths.output_dir}
+  period: 'epoch'
+  every_n_period: 1
+  param_names: null
+  aggr_func_names: null

@@ -1,0 +1,6 @@
+[core]
+    autostage = true
+    remote = s3-autodition
+['remote "s3-autodition"']
+    url = s3://autodition/dvc
+    endpointurl = https://storage.yandexcloud.net/

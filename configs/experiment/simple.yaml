@@ -1,0 +1,20 @@
+# @package _global_
+
+# to execute this experiment run:
+# python train.py experiment=example
+
+defaults:
+  - override /data: us8k
+  - override /model: audio_classification
+  - override /callbacks: default
+  - override /trainer: default
+  - override /logger: mlflow
+
+
+tags: ["audio", "urbansound8k"]
+
+seed: 12345
+
+logger:
+  mlflow:
+    run_name: simple_experiment

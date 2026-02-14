@@ -1,0 +1,13 @@
+_target_: src.data.components.containers.TargetSchema
+
+categorical:
+  _target_: src.data.components.containers.CategoricalFeatureInfo
+  feature_names:
+    - class_id
+  torch_dtype:
+    _target_: src.utils.utils.torch_dtype
+    dtype: long
+  vocabularies_size:
+    - 10
+  embeddings_dim:
+    - 10
