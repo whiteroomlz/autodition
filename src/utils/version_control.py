@@ -31,7 +31,7 @@ def validate_dataset(root, cfg: DictConfig):
         local_content = file.read()
     try:
         remote_content = subprocess.check_output(  # nosec B603 B607
-            ["git", "show", f"origin/master:{remote_dvc_path}"], cwd=root
+            ["git", "show", f"origin/main:{remote_dvc_path}"], cwd=root
         ).decode("utf-8")
     except subprocess.CalledProcessError as e:
         log.error(f"Error while checking out {remote_dvc_path}: {e}")

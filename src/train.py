@@ -140,14 +140,16 @@ def main(cfg: DictConfig) -> Optional[float]:
     :param cfg: DictConfig configuration composed by Hydra.
     :return: Optional[float] with optimized metric value.
     """
-    # if cfg.get("debug", None) is None:
-    #     log.info("Running data validation...")
-    #     validate_dvc_status(root)
-    #     is_valid, _ = validate_dataset(root=root, cfg=cfg)
-    #     if not is_valid:
-    #         raise ValueError(
-    #             "Config parameters specify the use of the master dataset; current dataset does not match the master."
-    #         )
+    if cfg.get("validate_data", None):
+        log.info("Running data validation...")
+        validate_dvc_status(root)
+        is_valid, _ = validate_dataset(root=root, cfg=cfg)
+        if not is_valid:
+            raise ValueError(
+                "Config parameters specify the use of the master dataset; current dataset does not match the master."
+            )
+
+    1/0
 
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)

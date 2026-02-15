@@ -3,4 +3,5 @@
     remote = s3-autodition
 ['remote "s3-autodition"']
     url = s3://autodition/dvc
-    endpointurl = https://storage.yandexcloud.net/
+    endpointurl = https://hb.ru-msk.vkcloud-storage.ru
+    region = ru-msk
