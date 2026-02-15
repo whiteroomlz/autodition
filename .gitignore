@@ -151,11 +151,15 @@ dmypy.json
 
 # Lightning-Hydra-Template
 configs/local/default.yaml
-/logs/
+
+logs/**
+!logs/**/
+!logs/**/*.dvc
 
 data/**
 !data/**/
 !data/**/*.dvc
+
 .env
 
 # Aim logging

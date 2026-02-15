@@ -9,5 +9,5 @@ mlflow:
   tags: null
   save_dir: "${paths.log_dir}/mlflow/mlruns"
   prefix: ""
-  artifact_location: null
+  artifact_location: "${paths.log_dir}/mlflow/artifacts"
   # run_id: ""
