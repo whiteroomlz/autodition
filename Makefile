@@ -1,5 +1,10 @@
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 help:  ## Show help
-	@grep -E '^[.a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[.a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
 
 # --------- setup --------- #
 
@@ -48,6 +53,17 @@ dvc-repro:  ## Reproduce DVC pipeline
 
 mlflow:  ## Start MLflow UI session
 	uv run mlflow ui --backend-store-uri sqlite:///logs/mlflow/mlruns.db
+
+# --------- commitizen --------- #
+
+commit:  ## Create a conventional commit
+	uv run cz commit
+
+bump:  ## Bump project version
+	uv run cz bump
+
+changelog:  ## Generate CHANGELOG.md
+	uv run cz changelog
 
 # --------- cleanup --------- #
 
