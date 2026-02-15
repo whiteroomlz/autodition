@@ -149,8 +149,6 @@ def main(cfg: DictConfig) -> Optional[float]:
                 "Config parameters specify the use of the master dataset; current dataset does not match the master."
             )
 
-    1/0
-
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)
     extras(cfg)
