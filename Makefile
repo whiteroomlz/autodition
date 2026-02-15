@@ -52,7 +52,7 @@ dvc-repro:  ## Reproduce DVC pipeline
 # --------- mlflow --------- #
 
 mlflow:  ## Start MLflow UI session
-	uv run mlflow ui --backend-store-uri sqlite:///logs/mlflow/mlruns.db
+	uv run mlflow ui --backend-store-uri logs/mlflow/mlruns
 
 # --------- commitizen --------- #
 
