@@ -50,6 +50,7 @@ dev = [
     "notebook>=7.3",
     "nbstripout>=0.8",
     "datasets>=3.0",
+    "commitizen>=4.1",
 ]
 
 [build-system]
@@ -94,3 +95,8 @@ exclude_lines = [
     "raise NotImplementedError()",
     "if __name__ == .__main__.:",
 ]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
