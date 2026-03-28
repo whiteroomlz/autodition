@@ -8,7 +8,10 @@ defaults:
 _target_: src.data.datamodule.AudioDataModule
 
 audio_path_key: audio_path
+audio_root_dir: ${paths.raw_data_dir}/UrbanSound8K
 target_sr: 16000
+clip_duration_seconds: null
+return_waveform_in_sample: false
 
 mel_spectrogram_cfg:
   _recursive_: false

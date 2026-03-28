@@ -1,0 +1,26 @@
+# @package _global_
+
+defaults:
+  - override /data: us8k
+  - override /model: us8k_cnn_small
+  - override /callbacks: default
+  - override /trainer: gpu
+  - override /logger: mlflow
+
+tags: ["audio", "urbansound8k", "cnn", "baseline"]
+
+seed: 12345
+
+data:
+  clip_duration_seconds: 4.0
+  train_batch_size: 32
+  val_batch_size: 32
+  test_batch_size: 32
+
+trainer:
+  max_epochs: 40
+  gradient_clip_val: 1.0
+
+logger:
+  mlflow:
+    run_name: us8k_cnn_baseline

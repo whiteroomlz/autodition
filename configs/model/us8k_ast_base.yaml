@@ -1,0 +1,37 @@
+_target_: src.models.audio_classification_module.AudioClassificationModule
+
+num_classes: 10
+target_name: class_id
+compile: false
+monitor_metric: val/acc
+warmup_type: linear
+warmup_rate: 0.1
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 1e-5
+  weight_decay: 1e-4
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  _partial_: true
+  T_max: 25
+  eta_min: 1e-6
+
+net:
+  _target_: src.models.components.full_models.ast.ASTAudioClassifier
+  num_classes: ${model.num_classes}
+  model_name: MIT/ast-finetuned-audioset-10-10-0.4593
+  load_pretrained: true
+  sample_rate: 16000
+  num_mel_bins: 128
+  max_length: 1024
+  mean: -4.2677393
+  std: 4.5689974
+  attn_implementation: sdpa
+  model_config:
+    hidden_size: null
+    num_hidden_layers: null
+    num_attention_heads: null
+    intermediate_size: null

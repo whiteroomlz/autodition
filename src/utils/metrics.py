@@ -7,7 +7,6 @@ from torchmetrics.classification import (
 )
 
 
-
 class RMSE(MeanSquaredError):
     def __init__(self):
         super().__init__(squared=False)

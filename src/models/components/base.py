@@ -4,6 +4,12 @@ from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import torch
 
+from src.utils.setuptools import (
+    SETUP_FUNCTION_NAME,
+    RequiresSetupABCMeta,
+    requires_setup,
+)
+
 
 @dataclass
 class ModelInput:
@@ -160,18 +166,36 @@ class OutputBlock(Block, ABC):
         raise NotImplementedError
 
 
-def setup_blocks(block):
-    if getattr(block, "setup", None):
-        block.setup()
+def setup_modules(module: torch.nn.Module) -> None:
+    setup_method = getattr(module, SETUP_FUNCTION_NAME, None)
+    if callable(setup_method):
+        setup_method()
 
-    for sub_block in block.children():
-        setup_blocks(sub_block)
+    for child_module in module.children():
+        setup_modules(child_module)
 
 
 # endregion
 
 
-class Model(torch.nn.Module):
+class Model(torch.nn.Module, ABC, metaclass=RequiresSetupABCMeta):
+    @staticmethod
+    def _coerce_model_input(model_input: Union[ModelInput, Dict]) -> ModelInput:
+        if isinstance(model_input, dict):  # for ONNX support
+            return ModelInput(**model_input)
+
+        return model_input
+
+    def setup(self) -> None:
+        """Prepare model resources after Hydra instantiation."""
+
+    @abstractmethod
+    @requires_setup
+    def forward(self, model_input: ModelInput) -> ModelOutput:
+        raise NotImplementedError
+
+
+class BlockModel(Model):
     def __init__(
         self,
         input_block: InputBlock,
@@ -182,8 +206,5 @@ class Model(torch.nn.Module):
         self.blocks = torch.nn.Sequential(input_block, *hidden_blocks, output_block)
 
     def forward(self, model_input: Union[ModelInput | Dict]) -> ModelOutput:
-        if isinstance(model_input, dict):  # for ONNX support
-            model_input = ModelInput(**model_input)
-
-        model_output = self.blocks(model_input)
-        return model_output
+        model_input = self._coerce_model_input(model_input)
+        return self.blocks(model_input)

@@ -1,5 +1,5 @@
 from abc import ABC
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Literal, Optional, Tuple
 
 import torch
 from pytorch_lightning import LightningModule
@@ -13,7 +13,7 @@ from src.models.components.base import (
     ModelOutput,
     ModelOutputForClassification,
     SequentialModelInput,
-    setup_blocks,
+    setup_modules,
 )
 from src.utils import pylogger
 
@@ -23,11 +23,8 @@ log = pylogger.RankedLogger(__name__, log_on_rank_zero_only=True)
 class LightningNet(LightningModule, ABC):
     net: Model
 
-    def forward(self, x: Union[ModelInput, Dict]) -> Union[ModelOutput, Dict]:
-        if isinstance(x, dict):
-            return self.net(x)
-        else:
-            return self.net(x)
+    def forward(self, x: ModelInput) -> ModelOutput:
+        return self.net(x)
 
 
 class AudioClassificationModule(LightningNet):
@@ -71,8 +68,7 @@ class AudioClassificationModule(LightningNet):
         self.val_acc_best = MaxMetric()
 
     def setup(self, stage: str) -> None:
-        for block in self.net.blocks:
-            setup_blocks(block)
+        setup_modules(self.net)
 
         if self.hparams.compile and stage == "fit":
             self.net = torch.compile(self.net)

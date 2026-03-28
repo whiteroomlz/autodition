@@ -10,30 +10,34 @@ warmup_rate: null
 optimizer:
   _target_: torch.optim.AdamW
   _partial_: true
-  lr: 1e-4
-  weight_decay: 1e-5
+  lr: 3e-4
+  weight_decay: 1e-4
 
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  T_max: 50
+  T_max: 40
   eta_min: 1e-6
 
 net:
   _target_: src.models.components.base.BlockModel
 
   input_block:
-    _target_: src.models.components.input_blocks.passthrough.SequentialNumericalPassthrough
+    _target_: src.models.components.input_blocks.spectrogram_cnn.SpectrogramCNNEncoder
+    channels: [32, 64, 128]
+    embedding_dim: 256
+    kernel_size: 3
+    dropout: 0.15
+    activation: gelu
+    use_batch_norm: true
+    global_pool: avgmax
 
-  hidden_blocks:
-    - _target_: src.models.components.hidden_blocks.sequential_pooling.Pooling
-      emb_dim: ${data.mel_spectrogram_cfg.obj.n_mels}
+  hidden_blocks: []
 
   output_block:
     _target_: src.models.components.output_blocks.classifiers.flat_linear.FlatLinearClassifier
-    # MaxMinMeanPooling (default) triples the emb_dim
-    emb_dim: ${eval:${data.mel_spectrogram_cfg.obj.n_mels} * 3}
+    emb_dim: 256
     n_layers: 2
-    dropout: 0.1
+    dropout: 0.2
     activation: gelu
     num_classes: ${model.num_classes}

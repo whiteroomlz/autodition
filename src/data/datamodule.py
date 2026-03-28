@@ -282,9 +282,9 @@ class FlatDataModule(DataModule):
 
 class SequentialDataModule(DataModule):
     def __init__(
-        self, 
-        transforms_cfg: DictConfig, 
-        augmentations_cfg: DictConfig, 
+        self,
+        transforms_cfg: DictConfig,
+        augmentations_cfg: DictConfig,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -314,18 +314,26 @@ class SequentialDataModule(DataModule):
 class AudioDataModule(DataModule):
     def __init__(
         self,
-        mel_spectrogram_cfg: DictConfig,
+        mel_spectrogram_cfg: Optional[DictConfig],
         audio_path_key: str = "audio_path",
+        audio_root_dir: Optional[str] = None,
         target_sr: int = 16000,
+        clip_duration_seconds: Optional[float] = None,
         waveform_augmentations_cfg: Optional[DictConfig] = None,
         spectrogram_augmentations_cfg: Optional[DictConfig] = None,
+        return_waveform_in_sample: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
-        self.mel_spectrogram: MelSpectrogram = hydra.utils.instantiate(mel_spectrogram_cfg)
+        self.mel_spectrogram: Optional[MelSpectrogram] = (
+            hydra.utils.instantiate(mel_spectrogram_cfg) if mel_spectrogram_cfg is not None else None
+        )
         self.audio_path_key = audio_path_key
+        self.audio_root_dir = audio_root_dir
         self.target_sr = target_sr
+        self.clip_duration_seconds = clip_duration_seconds
+        self.return_waveform_in_sample = return_waveform_in_sample
 
         self.waveform_augmentations: Optional[AudioPreprocessingUnit] = (
             hydra.utils.instantiate(waveform_augmentations_cfg)
@@ -344,12 +352,15 @@ class AudioDataModule(DataModule):
             feature_data=self.feature_data,
             mel_spectrogram=self.mel_spectrogram,
             audio_path_key=self.audio_path_key,
+            audio_root_dir=self.audio_root_dir,
             target_sr=self.target_sr,
+            clip_duration_seconds=self.clip_duration_seconds,
             samples_keys=samples_keys,
             target_data=self.target_data,
             target_schema=self.target_schema,
             waveform_augmentations=self.waveform_augmentations if is_train else None,
             spectrogram_augmentations=self.spectrogram_augmentations if is_train else None,
+            return_waveform_in_sample=self.return_waveform_in_sample,
         )
         dataset.setup()
 

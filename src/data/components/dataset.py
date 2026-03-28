@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+import soundfile as sf
 import torch
-import torchaudio
+import torch.nn.functional as F
 import torch.utils.data as torch_data
+import torchaudio
 
 from src.utils.setuptools import RequiresSetupABCMeta, requires_setup
 
@@ -15,7 +18,8 @@ from .containers import (
     TargetSchema,
     TorchFeatureTypeInfo,
 )
-from .preprocessing.audio import AudioPreprocessingUnit, MelSpectrogram, Skip as AudioSkip
+from .preprocessing.audio import AudioPreprocessingUnit, MelSpectrogram
+from .preprocessing.audio import Skip as AudioSkip
 from .preprocessing.sequential import Pipeline, Skip
 from .preprocessing.sequential.augmentations import Augmentation
 from .preprocessing.sequential.transforms import Transform
@@ -232,20 +236,26 @@ class AudioDataset(Dataset):
         self,
         feature_data: DfData,
         feature_schema: FeatureSchema,
-        mel_spectrogram: MelSpectrogram,
+        mel_spectrogram: Optional[MelSpectrogram],
         audio_path_key: str = "audio_path",
+        audio_root_dir: Optional[str] = None,
         target_sr: int = 16000,
+        clip_duration_seconds: Optional[float] = None,
         samples_keys: Optional[DfData] = None,
         target_data: Optional[DfData] = None,
         target_schema: Optional[TargetSchema] = None,
         waveform_augmentations: Optional[AudioPreprocessingUnit] = None,
         spectrogram_augmentations: Optional[AudioPreprocessingUnit] = None,
+        return_waveform_in_sample: bool = False,
     ):
         super().__init__(feature_data, feature_schema, samples_keys, target_data, target_schema)
 
         self._audio_path_key = audio_path_key
+        self._audio_root_dir = Path(audio_root_dir) if audio_root_dir is not None else None
         self._target_sr = target_sr
         self._mel_spectrogram = mel_spectrogram
+        self._clip_duration_seconds = clip_duration_seconds
+        self._return_waveform_in_sample = return_waveform_in_sample
 
         self._waveform_augmentations = waveform_augmentations if waveform_augmentations is not None else AudioSkip()
         self._spectrogram_augmentations = spectrogram_augmentations if spectrogram_augmentations is not None else AudioSkip()
@@ -262,16 +272,26 @@ class AudioDataset(Dataset):
         sample_id, features, targets = self._read_sample(index)
 
         waveform = self._load_audio(features[self._audio_path_key])
+        waveform = self._trim_or_pad_waveform(waveform)
         waveform = self._waveform_augmentations(waveform)
 
-        spectrogram = self._mel_spectrogram(waveform)
-        spectrogram = self._spectrogram_augmentations(spectrogram)
+        if self._mel_spectrogram is not None:
+            spectrogram = self._mel_spectrogram(waveform)
+            spectrogram = self._spectrogram_augmentations(spectrogram)
+        else:
+            spectrogram = None
 
         if targets is not None:
             self._filter_targets(targets)
             targets = pack_flat_targets(self._target_schema, targets)
 
-        sample = Sample(sample_id=sample_id, numerical=spectrogram, targets=targets)
+        raw_waveform = waveform.squeeze(0) if self._return_waveform_in_sample else None
+        sample = Sample(
+            sample_id=sample_id,
+            raw=raw_waveform,
+            numerical=spectrogram,
+            targets=targets,
+        )
 
         return sample
 
@@ -287,13 +307,88 @@ class AudioDataset(Dataset):
         return key, features, targets
 
     def _load_audio(self, audio_path: str) -> torch.Tensor:
-        waveform, sr = torchaudio.load(audio_path)
+        resolved_audio_path = self._resolve_audio_path(audio_path)
+        waveform, sr = self._read_audio(resolved_audio_path)
         waveform = waveform[0:1, :]  # mono
 
         if sr != self._target_sr:
             waveform = torchaudio.functional.resample(waveform, sr, self._target_sr)
 
         return waveform
+
+    def _read_audio(self, audio_path: Path) -> Tuple[torch.Tensor, int]:
+        try:
+            return torchaudio.load(str(audio_path))
+        except RuntimeError as error:
+            if not self._should_use_soundfile_fallback(error):
+                raise
+
+        waveform, sr = sf.read(str(audio_path), dtype="float32", always_2d=True)
+        return torch.from_numpy(waveform.T), sr
+
+    @staticmethod
+    def _should_use_soundfile_fallback(error: RuntimeError) -> bool:
+        error_message = str(error).lower()
+        return "libtorchcodec" in error_message or "torchcodec" in error_message or "ffmpeg" in error_message
+
+    def _trim_or_pad_waveform(self, waveform: torch.Tensor) -> torch.Tensor:
+        if self._clip_duration_seconds is None:
+            return waveform
+
+        max_num_samples = int(round(self._clip_duration_seconds * self._target_sr))
+        current_num_samples = waveform.shape[-1]
+
+        if current_num_samples > max_num_samples:
+            return waveform[..., :max_num_samples]
+
+        if current_num_samples < max_num_samples:
+            return F.pad(waveform, (0, max_num_samples - current_num_samples))
+
+        return waveform
+
+    def _resolve_audio_path(self, audio_path: str) -> Path:
+        audio_path_obj = Path(audio_path)
+
+        if audio_path_obj.is_absolute():
+            if audio_path_obj.exists():
+                return audio_path_obj
+
+            normalized_legacy_path = self._normalize_legacy_absolute_path(audio_path_obj)
+            if normalized_legacy_path is not None and normalized_legacy_path.exists():
+                return normalized_legacy_path
+        else:
+            relative_audio_path = audio_path_obj
+            if (
+                self._audio_root_dir is not None
+                and relative_audio_path.parts
+                and relative_audio_path.parts[0] == self._audio_root_dir.name
+            ):
+                relative_audio_path = Path(*relative_audio_path.parts[1:])
+
+            if self._audio_root_dir is not None:
+                resolved_audio_path = self._audio_root_dir / relative_audio_path
+            else:
+                resolved_audio_path = relative_audio_path
+
+            if resolved_audio_path.exists():
+                return resolved_audio_path
+
+        raise FileNotFoundError(
+            f"Unable to resolve audio path '{audio_path}'. "
+            f"Configured audio_root_dir='{self._audio_root_dir}'."
+        )
+
+    def _normalize_legacy_absolute_path(self, audio_path: Path) -> Optional[Path]:
+        if self._audio_root_dir is None:
+            return None
+
+        try:
+            dataset_root_index = audio_path.parts.index(self._audio_root_dir.name)
+        except ValueError:
+            return None
+
+        relative_audio_path = Path(*audio_path.parts[dataset_root_index + 1 :])
+        return self._audio_root_dir / relative_audio_path
 
     def _filter_targets(self, targets: Record) -> None:
         keys = tuple(targets.keys())

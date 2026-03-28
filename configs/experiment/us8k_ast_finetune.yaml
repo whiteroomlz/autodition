@@ -1,0 +1,20 @@
+# @package _global_
+
+defaults:
+  - override /data: us8k_ast
+  - override /model: us8k_ast_base
+  - override /callbacks: default
+  - override /trainer: gpu
+  - override /logger: mlflow
+
+tags: ["audio", "urbansound8k", "ast", "finetune"]
+
+seed: 12345
+
+trainer:
+  max_epochs: 25
+  gradient_clip_val: 1.0
+
+logger:
+  mlflow:
+    run_name: us8k_ast_finetune

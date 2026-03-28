@@ -1,0 +1,6 @@
+_target_: src.data.components.containers.FeatureSchema
+
+raw:
+  _target_: src.data.components.containers.FeatureTypeInfo
+  feature_names:
+    - waveform
