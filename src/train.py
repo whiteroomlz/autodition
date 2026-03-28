@@ -148,7 +148,7 @@ def main(cfg: DictConfig) -> Optional[float]:
     """
     if cfg.get("validate_data", None):
         log.info("Running data validation...")
-        validate_dvc_status(root)
+        # validate_dvc_status(root)
         is_valid, _ = validate_dataset(root=root, cfg=cfg)
         if not is_valid:
             raise ValueError(

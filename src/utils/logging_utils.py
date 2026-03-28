@@ -53,7 +53,7 @@ def log_hyperparameters(object_dict: Dict) -> None:
         p.numel() for p in model.parameters() if not p.requires_grad
     )
     hparams["model_architecture"] = log_params_from_omegaconf_dict(
-        OmegaConf.create(cfg)["model"]["net"]
+        OmegaConf.create(cfg)["model"]["model"]
     )
 
     hparams["data"] = cfg["data"]
