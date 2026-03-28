@@ -15,7 +15,9 @@ fields:
       axes: [time]
       variable_axes: [time]
     batching:
-      _target_: src.data.components.schema.ListBatchingSpec
+      _target_: src.data.components.schema.PadBatchingSpec
+      variable_axis: time
+      pad_value: 0.0
     required: true
 
   class_id:

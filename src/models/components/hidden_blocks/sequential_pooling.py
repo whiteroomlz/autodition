@@ -1,39 +1,35 @@
+from __future__ import annotations
+
 import torch
 
-from src.models.components.base import (
-    FlatForwardState,
-    SeqToFlatHiddenBlock,
-    SequentialForwardState,
-)
+from src.models.components.base import HiddenBlock, ModelContext, TensorSlot
 
 
 class PoolingType(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    pooling_output_multiplier = None
+    pooling_output_multiplier: int
 
 
-def last_pooling(hidden_states, padding_mask, dim=1):
-    """For right side padding."""
+def last_pooling(hidden_states: torch.Tensor, padding_mask: torch.BoolTensor, dim: int = 1) -> torch.Tensor:
     seq_lengths = torch.sum(padding_mask, dim)
-    last_hidden_states = hidden_states[torch.arange(hidden_states.size()[0]), seq_lengths - 1, :]
-    return last_hidden_states
+    return hidden_states[torch.arange(hidden_states.size(0)), seq_lengths - 1, :]
 
 
-def first_pooling(hidden_states, padding_mask, dim=1):
-    """For right side padding."""
-    first_hidden_states = hidden_states[:, 0, :]
-    return first_hidden_states
+def first_pooling(
+    hidden_states: torch.Tensor,
+    padding_mask: torch.BoolTensor,
+    dim: int = 1,
+) -> torch.Tensor:
+    del padding_mask, dim
+    return hidden_states[:, 0, :]
 
 
-def mean_pooling(hidden_states, padding_mask, dim=1):
+def mean_pooling(hidden_states: torch.Tensor, padding_mask: torch.BoolTensor, dim: int = 1) -> torch.Tensor:
     sum_hidden_states = torch.sum(hidden_states * padding_mask[:, :, None], dim)
     sum_mask = torch.sum(padding_mask, dim, keepdim=True)
     return sum_hidden_states / sum_mask
 
 
-def max_pooling(hidden_states, padding_mask, dim=1):
+def max_pooling(hidden_states: torch.Tensor, padding_mask: torch.BoolTensor, dim: int = 1) -> torch.Tensor:
     inverse_mask = ~padding_mask.clone()
     float_mask = inverse_mask.type_as(hidden_states).masked_fill(
         inverse_mask, torch.finfo(hidden_states.dtype).min
@@ -43,7 +39,7 @@ def max_pooling(hidden_states, padding_mask, dim=1):
     return torch.max(masked_hidden_states, dim)[0]
 
 
-def min_pooling(hidden_states, padding_mask, dim=1):
+def min_pooling(hidden_states: torch.Tensor, padding_mask: torch.BoolTensor, dim: int = 1) -> torch.Tensor:
     inverse_mask = ~padding_mask.clone()
     float_mask = inverse_mask.type_as(hidden_states).masked_fill(
         inverse_mask, torch.finfo(hidden_states.dtype).max
@@ -54,91 +50,78 @@ def min_pooling(hidden_states, padding_mask, dim=1):
 
 
 class LastPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 1
+    pooling_output_multiplier = 1
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         return last_pooling(data, data_mask)
 
 
 class FirstPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 1
+    pooling_output_multiplier = 1
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         return first_pooling(data, data_mask)
 
 
 class MeanPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 1
+    pooling_output_multiplier = 1
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         return mean_pooling(data, data_mask)
 
 
 class MaxPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 1
+    pooling_output_multiplier = 1
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         return max_pooling(data, data_mask)
 
 
 class MaxMinPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 2
+    pooling_output_multiplier = 2
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         max_pooling_results = max_pooling(data, data_mask)
         min_pooling_results = mean_pooling(data, data_mask)
-        pooled_data = torch.cat((max_pooling_results, min_pooling_results), dim=1)
-        return pooled_data
+        return torch.cat((max_pooling_results, min_pooling_results), dim=1)
 
 
 class MaxMeanPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 2
+    pooling_output_multiplier = 2
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         max_pooling_results = max_pooling(data, data_mask)
         avg_pooling_results = mean_pooling(data, data_mask)
-        pooled_data = torch.cat((max_pooling_results, avg_pooling_results), dim=1)
-        return pooled_data
+        return torch.cat((max_pooling_results, avg_pooling_results), dim=1)
 
 
 class MaxMinMeanPooling(PoolingType):
-    def __init__(self):
-        super().__init__()
-        self.pooling_output_multiplier = 3
+    pooling_output_multiplier = 3
 
     @staticmethod
-    def forward(data, data_mask):
+    def forward(data: torch.Tensor, data_mask: torch.BoolTensor) -> torch.Tensor:
         max_pooling_results = max_pooling(data, data_mask)
         min_pooling_results = min_pooling(data, data_mask)
         avg_pooling_results = mean_pooling(data, data_mask)
-        pooled_data = torch.cat(
+        return torch.cat(
             (max_pooling_results, min_pooling_results, avg_pooling_results), dim=1
         )
-        return pooled_data
 
 
-class Pooling(SeqToFlatHiddenBlock):
+class Pooling(HiddenBlock):
     def __init__(
-        self, emb_dim, use_batch_norm=False, use_layer_norm=False, pooling_type: PoolingType = None
-    ):
+        self,
+        emb_dim: int,
+        use_batch_norm: bool = False,
+        use_layer_norm: bool = False,
+        pooling_type: PoolingType | None = None,
+    ) -> None:
         super().__init__()
         if use_batch_norm and use_layer_norm:
             raise ValueError("You should pass only one type of normalization")
@@ -156,10 +139,13 @@ class Pooling(SeqToFlatHiddenBlock):
         else:
             self.bn = torch.nn.Identity()
 
-    def forward(self, x: SequentialForwardState) -> FlatForwardState:
-        hidden_state = x.hidden_state
-        padding_mask = x.padding_mask
+    def forward(self, slot: TensorSlot, context: ModelContext) -> TensorSlot:
+        del context
+        if slot.mask is None:
+            raise ValueError("Pooling requires an input mask")
+
+        hidden_state = slot.value
+        padding_mask = slot.mask
         pooling_results = self.pooling_func(hidden_state, padding_mask)
         pooling_results_after_normalization = self.bn(pooling_results)
-
-        return FlatForwardState(hidden_state=pooling_results_after_normalization, meta=x.meta)
+        return TensorSlot(value=pooling_results_after_normalization)

@@ -1,50 +1,27 @@
-from abc import ABC, abstractmethod
-from typing import Sequence, Tuple, Union
+from __future__ import annotations
 
-import torch.nn
+from typing import Sequence
 
-from src.models.components.base import (
-    Block,
-    FlatForwardState,
-    ForwardState,
-    ModelInput,
-    ModelOutput,
-    SequentialForwardState,
-)
-from src.utils.utils import recursive_merge
+import torch
+
+from src.models.components.base import ModelContext, Ref, TensorSlot, TransformStage
 
 
-class Concat(Block, ABC):
-    def __init__(self, blocks: Sequence[Block]):
-        super().__init__()
-        self.blocks = torch.nn.ModuleList(blocks)
+class ConcatFields(TransformStage):
+    def __init__(self, inputs: Sequence[Ref], output_name: str, dim: int = -1) -> None:
+        super().__init__(inputs=inputs, outputs=(output_name,))
+        self.dim = dim
 
-    def forward(self, x: Union[ModelInput | ForwardState]) -> Union[ForwardState | ModelOutput]:
-        outputs = tuple(block(x) for block in self.blocks)
-        outputs_concatenated = self._concat_outputs(outputs)  # noqa
-        return outputs_concatenated
+    def forward(self, context: ModelContext) -> ModelContext:
+        slots = [context.resolve_slot(ref) for ref in self.inputs]
+        masks = [slot.mask for slot in slots if slot.mask is not None]
 
-    @abstractmethod
-    def _concat_outputs(
-        self, outputs: Tuple[Union[ForwardState | ModelOutput]]
-    ) -> Union[ForwardState | ModelOutput]:
-        raise NotImplementedError
+        if masks and any(mask is None for mask in [slot.mask for slot in slots]):
+            raise ValueError("ConcatFields expects either all masked or all unmasked inputs")
 
+        if masks and any(not torch.equal(masks[0], mask) for mask in masks[1:]):
+            raise ValueError("ConcatFields requires all input masks to be identical")
 
-class ConcatFlatHidden(Concat):
-    def _concat_outputs(self, outputs: Tuple[FlatForwardState]) -> FlatForwardState:
-        hidden_state = torch.hstack(tuple(map(lambda output: output.hidden_state, outputs)))
-
-        meta = dict()
-        for output in outputs:
-            meta = recursive_merge(meta, output.meta)
-
-        return FlatForwardState(hidden_state=hidden_state, meta=meta)
-
-
-class ConcatSeqHidden(Concat):
-    def _concat_outputs(self, outputs: Tuple[SequentialForwardState]) -> SequentialForwardState:
-        hidden_state = torch.hstack(tuple(map(lambda output: output.hidden_state, outputs)))
-        return SequentialForwardState(
-            hidden_state=hidden_state, padding_mask=outputs[0].padding_mask
-        )
+        concatenated = torch.cat([slot.value for slot in slots], dim=self.dim)
+        context.write("rep", self.outputs[0], TensorSlot(value=concatenated, mask=masks[0] if masks else None))
+        return context

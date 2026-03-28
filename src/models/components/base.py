@@ -1,135 +1,270 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Sequence, Union
+from typing import Any, Dict, Iterable, Literal, Optional, Sequence, Tuple
 
 import torch
+from omegaconf import DictConfig, OmegaConf
 
+from src.data.components.batch import Batch
 from src.utils.setuptools import (
     SETUP_FUNCTION_NAME,
     RequiresSetupABCMeta,
     requires_setup,
 )
 
+RefSource = Literal["field", "mask", "rep", "pred"]
+StoreName = Literal["rep", "pred"]
+
+REF_SOURCES = frozenset({"field", "mask", "rep", "pred"})
+STORE_NAMES = frozenset({"rep", "pred"})
+
+
+@dataclass(frozen=True)
+class Ref:
+    source: RefSource
+    name: str
+
+    def __post_init__(self) -> None:
+        if self.source not in REF_SOURCES:
+            raise ValueError(f"Unsupported ref source: {self.source}")
+        if not self.name:
+            raise ValueError("Ref.name must not be empty")
+
 
 @dataclass
-class ModelInput:
-    raw: Optional[Any] = None
-    numerical: Optional[torch.Tensor] = None
-    categorical: Optional[torch.Tensor] = None
+class TensorSlot:
+    value: torch.Tensor
+    mask: Optional[torch.BoolTensor] = None
+
+    def __post_init__(self) -> None:
+        if not torch.is_tensor(self.value):
+            raise TypeError("TensorSlot.value must be a torch.Tensor")
+        if self.mask is not None:
+            if not torch.is_tensor(self.mask):
+                raise TypeError("TensorSlot.mask must be a torch.BoolTensor")
+            self.mask = self.mask.bool()
 
 
 @dataclass
-class SequentialModelInput(ModelInput):
-    """Sequential model input.
-
-    B - batch size
-    L - sequence length
-    F - features
-    """
-
-    padding_mask: Optional[torch.Tensor] = None
-
-
-@dataclass
-class ForwardState(ABC):
+class ModelContext:
+    batch: Batch
+    reps: Dict[str, TensorSlot] = field(default_factory=dict)
+    preds: Dict[str, TensorSlot] = field(default_factory=dict)
     meta: Dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_batch(cls, batch: Batch) -> ModelContext:
+        return cls(batch=batch, meta=dict(batch.meta))
+
+    def resolve_slot(self, ref: Ref) -> TensorSlot:
+        if ref.source == "field":
+            if ref.name not in self.batch.fields:
+                raise KeyError(f"Batch does not contain field '{ref.name}'")
+            value = self.batch.fields[ref.name]
+            if not torch.is_tensor(value):
+                raise TypeError(
+                    f"Field '{ref.name}' must be tensor-collated before crossing model boundary"
+                )
+            return TensorSlot(value=value, mask=self.batch.masks.get(ref.name))
+
+        if ref.source == "mask":
+            if ref.name not in self.batch.masks:
+                raise KeyError(f"Batch does not contain mask '{ref.name}'")
+            return TensorSlot(value=self.batch.masks[ref.name].bool())
+
+        storage = self.reps if ref.source == "rep" else self.preds
+        if ref.name not in storage:
+            raise KeyError(f"{ref.source} '{ref.name}' is not available in the current context")
+        return storage[ref.name]
+
+    def resolve_tensor(self, ref: Ref) -> torch.Tensor:
+        return self.resolve_slot(ref).value
+
+    def resolve_mask(self, ref: Ref) -> torch.BoolTensor:
+        if ref.source == "mask":
+            return self.resolve_tensor(ref).bool()
+
+        slot = self.resolve_slot(ref)
+        if slot.mask is None:
+            raise KeyError(f"Ref '{ref.source}:{ref.name}' does not expose a mask")
+        return slot.mask.bool()
+
+    def write(self, store: StoreName, name: str, slot: TensorSlot) -> None:
+        if store not in STORE_NAMES:
+            raise ValueError(f"Unsupported store '{store}'")
+
+        storage = self.reps if store == "rep" else self.preds
+        if name in storage:
+            raise ValueError(f"{store} '{name}' already has a producer")
+        storage[name] = slot
+
 
 @dataclass
-class FlatForwardState(ForwardState):
-    hidden_state: torch.Tensor = None
-
-    def __init__(self, hidden_state: torch.Tensor, meta=None):
-        super().__init__(meta=meta if meta is not None else {})
-        self.hidden_state = hidden_state.clone()
-
-    @classmethod
-    def clone(cls, input_forward_state):
-        return cls(input_forward_state.hidden_state, meta=input_forward_state.meta)
-
-
-@dataclass
-class SequentialForwardState(ForwardState):
-    hidden_state: torch.Tensor = None
-    padding_mask: torch.BoolTensor = None
-
-    def __init__(self, hidden_state: torch.Tensor, padding_mask: torch.BoolTensor, meta=None):
-        super().__init__(meta=meta if meta is not None else {})
-        self.hidden_state = hidden_state.clone()
-        self.padding_mask = padding_mask.clone()
-
-    @classmethod
-    def init_without_mask(cls, hidden_state: torch.FloatTensor):
-        empty_mask = hidden_state.data.new_ones(hidden_state.shape[:-1], dtype=torch.bool)
-        return cls(hidden_state, empty_mask)
-
-    @classmethod
-    def clone(cls, input_forward_state):
-        return cls(input_forward_state.hidden_state, input_forward_state.padding_mask)
-
-
-@dataclass
-class ModelOutput(ABC):
+class ModelResult:
+    reps: Dict[str, TensorSlot] = field(default_factory=dict)
+    preds: Dict[str, TensorSlot] = field(default_factory=dict)
     meta: Dict[str, Any] = field(default_factory=dict)
 
+    @classmethod
+    def from_context(cls, context: ModelContext) -> ModelResult:
+        return cls(
+            reps=dict(context.reps),
+            preds=dict(context.preds),
+            meta=dict(context.meta),
+        )
 
-@dataclass
-class ModelOutputForClassification(ModelOutput):
-    logits: Optional[torch.FloatTensor] = None
+    def resolve_slot(self, ref: Ref) -> TensorSlot:
+        if ref.source == "rep":
+            if ref.name not in self.reps:
+                raise KeyError(f"Result does not contain rep '{ref.name}'")
+            return self.reps[ref.name]
+        if ref.source == "pred":
+            if ref.name not in self.preds:
+                raise KeyError(f"Result does not contain pred '{ref.name}'")
+            return self.preds[ref.name]
+        raise KeyError(f"ModelResult cannot resolve non-model ref '{ref.source}:{ref.name}'")
 
 
-class Block(torch.nn.Module, ABC):
+class Stage(torch.nn.Module, ABC):
+    def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str], store: StoreName) -> None:
+        super().__init__()
+        self.inputs = tuple(_coerce_ref(ref) for ref in inputs)
+        self.outputs = tuple(outputs)
+        self.store = store
+
+        if store not in STORE_NAMES:
+            raise ValueError(f"Unsupported stage store '{store}'")
+        if not self.outputs:
+            raise ValueError("Stage must declare at least one output")
+        if len(set(self.outputs)) != len(self.outputs):
+            raise ValueError("Stage outputs must be unique")
+
     @abstractmethod
-    def forward(self, x: Union[ModelInput, ForwardState]) -> Union[ForwardState, ModelOutput]:
+    def forward(self, context: ModelContext) -> ModelContext:
         raise NotImplementedError
 
 
-class InputBlock(Block, ABC):
+class EncoderStage(Stage, ABC):
+    def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str]) -> None:
+        super().__init__(inputs=inputs, outputs=outputs, store="rep")
+
+
+class TransformStage(Stage, ABC):
+    def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str]) -> None:
+        super().__init__(inputs=inputs, outputs=outputs, store="rep")
+
+
+class HeadStage(Stage, ABC):
+    def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str]) -> None:
+        super().__init__(inputs=inputs, outputs=outputs, store="pred")
+
+
+class InputBlock(torch.nn.Module, ABC):
     @abstractmethod
-    def forward(self, x: ModelInput) -> ForwardState:
+    def forward(self, inputs: Sequence[TensorSlot], context: ModelContext) -> TensorSlot:
         raise NotImplementedError
 
 
-class FlatInputBlock(InputBlock, ABC):
+class HiddenBlock(torch.nn.Module, ABC):
     @abstractmethod
-    def forward(self, x: ModelInput) -> FlatForwardState:
+    def forward(self, slot: TensorSlot, context: ModelContext) -> TensorSlot:
         raise NotImplementedError
 
 
-class SequentialInputBlock(InputBlock, ABC):
+class OutputBlock(torch.nn.Module, ABC):
     @abstractmethod
-    def forward(self, x: ModelInput) -> SequentialForwardState:
+    def forward(self, slot: TensorSlot, context: ModelContext) -> TensorSlot:
         raise NotImplementedError
 
 
-class HiddenBlock(Block, ABC):
+class Model(torch.nn.Module, ABC, metaclass=RequiresSetupABCMeta):
+    def setup(self) -> None:
+        """Prepare model resources after Hydra instantiation."""
+
     @abstractmethod
-    def forward(self, x: ForwardState) -> ForwardState:
+    @requires_setup
+    def forward(self, batch: Batch) -> ModelResult:
         raise NotImplementedError
 
 
-class SeqToSeqHiddenBlock(Block, ABC):
-    @abstractmethod
-    def forward(self, x: SequentialForwardState) -> SequentialForwardState:
-        raise NotImplementedError
+class BlockModel(Stage):
+    def __init__(
+        self,
+        inputs: Sequence[Ref],
+        output_name: str,
+        store: StoreName,
+        input_block: InputBlock,
+        hidden_blocks: Sequence[HiddenBlock],
+        output_block: OutputBlock,
+    ) -> None:
+        super().__init__(inputs=inputs, outputs=(output_name,), store=store)
+        self.input_block = input_block
+        self.hidden_blocks = torch.nn.ModuleList(hidden_blocks)
+        self.output_block = output_block
+
+    def forward(self, context: ModelContext) -> ModelContext:
+        input_slots = tuple(context.resolve_slot(ref) for ref in self.inputs)
+        slot = self.input_block(input_slots, context)
+        for block in self.hidden_blocks:
+            slot = block(slot, context)
+        slot = self.output_block(slot, context)
+        context.write(self.store, self.outputs[0], slot)
+        return context
 
 
-class SeqToFlatHiddenBlock(Block, ABC):
-    @abstractmethod
-    def forward(self, x: SequentialForwardState) -> FlatForwardState:
-        raise NotImplementedError
+class PipelineModel(Model):
+    def __init__(self, stages: Sequence[Stage]) -> None:
+        super().__init__()
+        self.stages = torch.nn.ModuleList(stages)
+
+    def setup(self) -> None:
+        self._validate_stage_wiring()
+
+    def _validate_stage_wiring(self) -> None:
+        available_reps = set()
+        available_preds = set()
+
+        for stage in self.stages:
+            for ref in stage.inputs:
+                if ref.source == "rep" and ref.name not in available_reps:
+                    raise ValueError(
+                        f"Stage '{stage.__class__.__name__}' depends on unavailable rep '{ref.name}'"
+                    )
+                if ref.source == "pred" and ref.name not in available_preds:
+                    raise ValueError(
+                        f"Stage '{stage.__class__.__name__}' depends on unavailable pred '{ref.name}'"
+                    )
+
+            target_storage = available_reps if stage.store == "rep" else available_preds
+            for output_name in stage.outputs:
+                if output_name in target_storage:
+                    raise ValueError(f"{stage.store} '{output_name}' already has a producer")
+                target_storage.add(output_name)
+
+    def forward(self, batch: Batch) -> ModelResult:
+        context = ModelContext.from_batch(batch)
+        for stage in self.stages:
+            context = stage(context)
+        return ModelResult.from_context(context)
 
 
-class FlatToFlatHiddenBlock(Block, ABC):
-    @abstractmethod
-    def forward(self, x: FlatForwardState) -> FlatForwardState:
-        raise NotImplementedError
+class BackboneWithHeads(Model):
+    def __init__(
+        self,
+        backbone: Sequence[Stage],
+        heads: Sequence[Stage],
+        transforms: Optional[Sequence[Stage]] = None,
+    ) -> None:
+        super().__init__()
+        self.pipeline = PipelineModel(stages=[*backbone, *(transforms or ()), *heads])
 
+    def setup(self) -> None:
+        self.pipeline.setup()
 
-class OutputBlock(Block, ABC):
-    @abstractmethod
-    def forward(self, x: ForwardState) -> ModelOutput:
-        raise NotImplementedError
+    def forward(self, batch: Batch) -> ModelResult:
+        return self.pipeline(batch)
 
 
 def setup_modules(module: torch.nn.Module) -> None:
@@ -141,32 +276,22 @@ def setup_modules(module: torch.nn.Module) -> None:
         setup_modules(child_module)
 
 
-class Model(torch.nn.Module, ABC, metaclass=RequiresSetupABCMeta):
-    @staticmethod
-    def _coerce_model_input(model_input: Union[ModelInput, Dict]) -> ModelInput:
-        if isinstance(model_input, dict):
-            return ModelInput(**model_input)
-        return model_input
-
-    def setup(self) -> None:
-        """Prepare model resources after Hydra instantiation."""
-
-    @abstractmethod
-    @requires_setup
-    def forward(self, model_input: ModelInput) -> ModelOutput:
-        raise NotImplementedError
+def _coerce_ref(ref: Ref | Dict[str, str]) -> Ref:
+    if isinstance(ref, DictConfig):
+        ref = OmegaConf.to_object(ref)
+    if isinstance(ref, Ref):
+        return ref
+    if isinstance(ref, dict):
+        ref_dict = {key: value for key, value in ref.items() if not key.startswith("_")}
+        return Ref(**ref_dict)
+    raise TypeError(f"Unsupported ref type: {type(ref).__name__}")
 
 
-class BlockModel(Model):
-    def __init__(
-        self,
-        input_block: InputBlock,
-        hidden_blocks: Sequence[HiddenBlock],
-        output_block: OutputBlock,
-    ):
-        super().__init__()
-        self.blocks = torch.nn.Sequential(input_block, *hidden_blocks, output_block)
+def ensure_single_input(inputs: Sequence[TensorSlot], block_name: str) -> TensorSlot:
+    if len(inputs) != 1:
+        raise ValueError(f"{block_name} expects exactly one input slot")
+    return inputs[0]
 
-    def forward(self, model_input: Union[ModelInput, Dict]) -> ModelOutput:
-        model_input = self._coerce_model_input(model_input)
-        return self.blocks(model_input)
+
+def resolve_refs(context: ModelContext, refs: Iterable[Ref]) -> Tuple[TensorSlot, ...]:
+    return tuple(context.resolve_slot(ref) for ref in refs)

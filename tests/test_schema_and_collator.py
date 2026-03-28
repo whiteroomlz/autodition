@@ -7,7 +7,6 @@ from src.data.components.schema import (
     CategoricalValueSpec,
     CustomBatchingSpec,
     FieldSpec,
-    ListBatchingSpec,
     OpaqueValueSpec,
     PadBatchingSpec,
     ScalarShapeSpec,
@@ -195,7 +194,7 @@ def test_image_change_detection_collation_stacks_paired_images() -> None:
     assert batch.fields["change_label"].tolist() == [0, 1]
 
 
-def test_audio_classification_collation_keeps_waveform_list_and_stacks_labels() -> None:
+def test_audio_classification_collation_pads_waveforms_and_stacks_labels() -> None:
     schema = Schema(
         fields={
             "waveform": FieldSpec(
@@ -203,7 +202,7 @@ def test_audio_classification_collation_keeps_waveform_list_and_stacks_labels() 
                 role="input",
                 value=TensorValueSpec(dtype=torch.float32),
                 shape=TensorShapeSpec(axes=("time",), variable_axes=("time",)),
-                batching=ListBatchingSpec(),
+                batching=PadBatchingSpec(variable_axis="time", pad_value=0.0),
             ),
             "class_id": FieldSpec(
                 name="class_id",
@@ -221,7 +220,8 @@ def test_audio_classification_collation_keeps_waveform_list_and_stacks_labels() 
         ]
     )
 
-    assert isinstance(batch.fields["waveform"], tuple)
+    assert batch.fields["waveform"].shape == (2, 3)
+    assert batch.masks["waveform"].tolist() == [[True, True, True], [True, True, False]]
     assert batch.fields["class_id"].shape == (2,)
 
 

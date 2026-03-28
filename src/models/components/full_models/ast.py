@@ -1,16 +1,26 @@
-from typing import Any, Dict, Optional, Sequence, Union
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Sequence
 
 import torch
 from transformers import ASTConfig, ASTFeatureExtractor, ASTForAudioClassification
 
-from src.models.components.base import Model, ModelInput, ModelOutputForClassification
+from src.models.components.base import (
+    HeadStage,
+    ModelContext,
+    Ref,
+    TensorSlot,
+    ensure_single_input,
+)
 
 
-class ASTAudioClassifier(Model):
-    """Full-model wrapper for Hugging Face AST classification models."""
+class ASTAudioClassifier(HeadStage):
+    """Field-native stage wrapper for Hugging Face AST classification models."""
 
     def __init__(
         self,
+        inputs: Sequence[Ref],
+        output_name: str,
         num_classes: int,
         model_name: str,
         load_pretrained: bool = True,
@@ -22,7 +32,7 @@ class ASTAudioClassifier(Model):
         attn_implementation: Optional[str] = "sdpa",
         model_config: Optional[Dict[str, Any]] = None,
     ) -> None:
-        super().__init__()
+        super().__init__(inputs=inputs, outputs=(output_name,))
 
         self.num_classes = num_classes
         self.model_name = model_name
@@ -45,19 +55,19 @@ class ASTAudioClassifier(Model):
         self.model = self._build_model(self.model_config)
         self.feature_extractor = self._build_feature_extractor()
 
-    def forward(
-        self,
-        model_input: Union[ModelInput, Dict[str, Any]],
-    ) -> ModelOutputForClassification:
-        model_input = self._coerce_model_input(model_input)
-        if model_input.raw is None:
-            raise ValueError("ASTAudioClassifier expects raw waveforms in model_input.raw")
-        if not torch.is_tensor(model_input.raw) and any(waveform is None for waveform in model_input.raw):
-            raise ValueError("ASTAudioClassifier expects raw waveforms in model_input.raw")
+    def forward(self, context: ModelContext) -> ModelContext:
+        slot = ensure_single_input(
+            tuple(context.resolve_slot(ref) for ref in self.inputs),
+            self.__class__.__name__,
+        )
+        if slot.mask is None:
+            raise ValueError("ASTAudioClassifier expects padded waveform masks at model boundary")
+        if slot.value.ndim != 2:
+            raise ValueError("ASTAudioClassifier expects waveform tensors shaped [batch, time]")
 
         model = self._get_model()
         feature_extractor = self._get_feature_extractor()
-        raw_waveforms = self._normalize_raw_waveforms(model_input.raw)
+        raw_waveforms = self._normalize_raw_waveforms(slot)
         feature_extractor_output = feature_extractor(
             raw_waveforms,
             sampling_rate=self.sample_rate,
@@ -69,24 +79,25 @@ class ASTAudioClassifier(Model):
         }
 
         output = model(**feature_extractor_output)
-        return ModelOutputForClassification(logits=output.logits)
+        context.write(self.store, self.outputs[0], TensorSlot(value=output.logits))
+        return context
 
-    def _normalize_raw_waveforms(self, raw_waveforms: Union[torch.Tensor, Sequence[Any]]) -> list:
-        if torch.is_tensor(raw_waveforms):
-            if raw_waveforms.ndim == 1:
-                raw_waveforms = raw_waveforms.unsqueeze(0)
-            return [waveform.detach().float().cpu().numpy() for waveform in raw_waveforms]
-
+    def _normalize_raw_waveforms(self, slot: TensorSlot) -> list:
+        waveform = slot.value
+        mask = slot.mask
         normalized_waveforms = []
-        for waveform in raw_waveforms:
-            if torch.is_tensor(waveform):
-                normalized_waveforms.append(waveform.detach().float().cpu().numpy())
-            else:
-                normalized_waveforms.append(waveform)
+
+        for sample_waveform, sample_mask in zip(waveform, mask):
+            valid_length = int(sample_mask.sum().item())
+            normalized_waveforms.append(
+                sample_waveform[:valid_length].detach().float().cpu().numpy()
+            )
         return normalized_waveforms
 
     def _build_model(self, model_config: Dict[str, Any]) -> ASTForAudioClassification:
-        model_config = {key: value for key, value in dict(model_config).items() if value is not None}
+        model_config = {
+            key: value for key, value in dict(model_config).items() if value is not None
+        }
 
         if self.load_pretrained:
             return ASTForAudioClassification.from_pretrained(

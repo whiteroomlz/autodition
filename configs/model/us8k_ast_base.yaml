@@ -1,12 +1,14 @@
-_target_: src.models.audio_classification_module.AudioClassificationModule
+defaults:
+  - /objective@objectives: classification_ce
+  - /metrics@metrics: classification_multiclass
+  - _self_
 
-num_classes: ${data.schema.fields.class_id.value.cardinality}
-target_field: ${data.schema.fields.class_id.name}
-input_adapter:
-  _target_: src.models.components.batch_adapter.BatchToModelInputAdapter
-  raw_field: ${data.schema.fields.waveform.name}
+_target_: src.models.task_module.TaskModule
+
+prediction_name: class_logits
 compile: false
 monitor_metric: val/acc
+monitor_metric_mode: max
 warmup_type: linear
 warmup_rate: 0.1
 
@@ -22,19 +24,27 @@ scheduler:
   T_max: 25
   eta_min: 1e-6
 
-net:
-  _target_: src.models.components.full_models.ast.ASTAudioClassifier
-  num_classes: ${model.num_classes}
-  model_name: MIT/ast-finetuned-audioset-10-10-0.4593
-  load_pretrained: true
-  sample_rate: 16000
-  num_mel_bins: 128
-  max_length: 1024
-  mean: -4.2677393
-  std: 4.5689974
-  attn_implementation: sdpa
-  model_config:
-    hidden_size: null
-    num_hidden_layers: null
-    num_attention_heads: null
-    intermediate_size: null
+model:
+  _target_: src.models.components.base.PipelineModel
+
+  stages:
+    - _target_: src.models.components.full_models.ast.ASTAudioClassifier
+      inputs:
+        - _target_: src.models.components.base.Ref
+          source: field
+          name: ${data.schema.fields.waveform.name}
+      output_name: ${model.prediction_name}
+      num_classes: ${data.schema.fields.class_id.value.cardinality}
+      model_name: MIT/ast-finetuned-audioset-10-10-0.4593
+      load_pretrained: true
+      sample_rate: 16000
+      num_mel_bins: 128
+      max_length: 1024
+      mean: -4.2677393
+      std: 4.5689974
+      attn_implementation: sdpa
+      model_config:
+        hidden_size: null
+        num_hidden_layers: null
+        num_attention_heads: null
+        intermediate_size: null

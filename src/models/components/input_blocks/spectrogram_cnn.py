@@ -1,16 +1,14 @@
+from __future__ import annotations
+
 from typing import Sequence
 
 import torch
 
-from src.models.components.base import (
-    FlatForwardState,
-    FlatInputBlock,
-    SequentialModelInput,
-)
+from src.models.components.base import InputBlock, ModelContext, TensorSlot, ensure_single_input
 from src.utils import ACTIVATIONS_MAPPING
 
 
-class SpectrogramCNNEncoder(FlatInputBlock):
+class SpectrogramCNNEncoder(InputBlock):
     """Encode log-mel spectrograms with a small 2D CNN."""
 
     def __init__(
@@ -22,12 +20,11 @@ class SpectrogramCNNEncoder(FlatInputBlock):
         activation: str = "gelu",
         use_batch_norm: bool = True,
         global_pool: str = "avgmax",
-    ):
+    ) -> None:
         super().__init__()
 
         if len(channels) == 0:
             raise ValueError("channels must contain at least one stage")
-
         if global_pool not in {"avg", "max", "avgmax"}:
             raise ValueError("global_pool must be one of: avg, max, avgmax")
 
@@ -51,6 +48,7 @@ class SpectrogramCNNEncoder(FlatInputBlock):
             conv_blocks.append(torch.nn.Dropout2d(dropout))
             in_channels = out_channels
 
+        self.embedding_dim = embedding_dim
         self.encoder = torch.nn.Sequential(*conv_blocks)
         self.global_pool = global_pool
 
@@ -61,20 +59,26 @@ class SpectrogramCNNEncoder(FlatInputBlock):
             torch.nn.Dropout(dropout),
         )
 
-    def forward(self, x: SequentialModelInput) -> FlatForwardState:
-        if x.numerical is None:
-            raise ValueError("SpectrogramCNNEncoder expects numerical spectrogram features")
+    def forward(self, inputs: Sequence[TensorSlot], context: ModelContext) -> TensorSlot:
+        slot = ensure_single_input(inputs, self.__class__.__name__)
+        hidden_state = slot.value
 
-        hidden_state = x.numerical.transpose(1, 2).unsqueeze(1)
+        if hidden_state.ndim != 3:
+            raise ValueError("SpectrogramCNNEncoder expects a [batch, time, mel] tensor")
+
+        hidden_state = hidden_state.transpose(1, 2).unsqueeze(1)
         hidden_state = self.encoder(hidden_state)
 
         pooled_hidden_states = []
         if self.global_pool in {"avg", "avgmax"}:
-            pooled_hidden_states.append(torch.nn.functional.adaptive_avg_pool2d(hidden_state, 1).flatten(1))
+            pooled_hidden_states.append(
+                torch.nn.functional.adaptive_avg_pool2d(hidden_state, 1).flatten(1)
+            )
         if self.global_pool in {"max", "avgmax"}:
-            pooled_hidden_states.append(torch.nn.functional.adaptive_max_pool2d(hidden_state, 1).flatten(1))
+            pooled_hidden_states.append(
+                torch.nn.functional.adaptive_max_pool2d(hidden_state, 1).flatten(1)
+            )
 
         hidden_state = torch.cat(pooled_hidden_states, dim=1)
         hidden_state = self.projection(hidden_state)
-
-        return FlatForwardState(hidden_state=hidden_state)
+        return TensorSlot(value=hidden_state)
