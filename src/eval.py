@@ -34,6 +34,7 @@ from src.utils import (
     log_hyperparameters,
     task_wrapper,
 )
+from src.utils.checkpointing import register_torch_safe_globals
 from src.utils.version_control import (
     get_dvc_hash,
     validate_dataset,
@@ -41,6 +42,7 @@ from src.utils.version_control import (
 )
 
 log = RankedLogger(__name__, log_on_rank_zero_only=True)
+register_torch_safe_globals()
 
 try:
     OmegaConf.register_new_resolver("eval", eval)  # example: ${eval:${model.net.emb_dim} * 2}

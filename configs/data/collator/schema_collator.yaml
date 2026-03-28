@@ -1,0 +1,2 @@
+_target_: src.data.components.collate.SchemaCollator
+schema: ${data.schema}

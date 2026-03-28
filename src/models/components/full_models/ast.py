@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import torch
 from transformers import ASTConfig, ASTFeatureExtractor, ASTForAudioClassification
@@ -50,12 +50,14 @@ class ASTAudioClassifier(Model):
         model_input: Union[ModelInput, Dict[str, Any]],
     ) -> ModelOutputForClassification:
         model_input = self._coerce_model_input(model_input)
-        if model_input.raw is None or any(waveform is None for waveform in model_input.raw):
+        if model_input.raw is None:
+            raise ValueError("ASTAudioClassifier expects raw waveforms in model_input.raw")
+        if not torch.is_tensor(model_input.raw) and any(waveform is None for waveform in model_input.raw):
             raise ValueError("ASTAudioClassifier expects raw waveforms in model_input.raw")
 
         model = self._get_model()
         feature_extractor = self._get_feature_extractor()
-        raw_waveforms = [waveform.detach().float().cpu().numpy() for waveform in model_input.raw]
+        raw_waveforms = self._normalize_raw_waveforms(model_input.raw)
         feature_extractor_output = feature_extractor(
             raw_waveforms,
             sampling_rate=self.sample_rate,
@@ -68,6 +70,20 @@ class ASTAudioClassifier(Model):
 
         output = model(**feature_extractor_output)
         return ModelOutputForClassification(logits=output.logits)
+
+    def _normalize_raw_waveforms(self, raw_waveforms: Union[torch.Tensor, Sequence[Any]]) -> list:
+        if torch.is_tensor(raw_waveforms):
+            if raw_waveforms.ndim == 1:
+                raw_waveforms = raw_waveforms.unsqueeze(0)
+            return [waveform.detach().float().cpu().numpy() for waveform in raw_waveforms]
+
+        normalized_waveforms = []
+        for waveform in raw_waveforms:
+            if torch.is_tensor(waveform):
+                normalized_waveforms.append(waveform.detach().float().cpu().numpy())
+            else:
+                normalized_waveforms.append(waveform)
+        return normalized_waveforms
 
     def _build_model(self, model_config: Dict[str, Any]) -> ASTForAudioClassification:
         model_config = {key: value for key, value in dict(model_config).items() if value is not None}

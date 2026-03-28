@@ -5,14 +5,19 @@ import numpy as np
 import pytest
 import torch
 
-from src.data.components.containers import (
-    CategoricalFeatureInfo,
-    FeatureSchema,
-    FeatureTypeInfo,
-    TargetSchema,
-)
+from src.data.components.batch import Sample
 from src.data.components.dataset import AudioDataset
 from src.data.components.raw_data import DfData
+from src.data.components.schema import (
+    CategoricalValueSpec,
+    FieldSpec,
+    ListBatchingSpec,
+    ScalarShapeSpec,
+    Schema,
+    StackBatchingSpec,
+    TensorShapeSpec,
+    TensorValueSpec,
+)
 
 
 class MemoryData(DfData):
@@ -36,7 +41,9 @@ class MemoryData(DfData):
 
 
 def write_wav(audio_path: Path, sample_rate: int = 16000, num_samples: int = 16000) -> None:
-    waveform = (0.1 * np.sin(2 * np.pi * 440 * np.arange(num_samples) / sample_rate) * 32767).astype(np.int16)
+    waveform = (0.1 * np.sin(2 * np.pi * 440 * np.arange(num_samples) / sample_rate) * 32767).astype(
+        np.int16
+    )
 
     with wave.open(str(audio_path), "wb") as stream:
         stream.setnchannels(1)
@@ -50,26 +57,33 @@ def build_dataset(audio_root_dir: Path, audio_path: str) -> AudioDataset:
     target_data = MemoryData({"sample": {"class_id": 3}})
     samples_keys = MemoryData({0: {"key": "sample"}})
 
-    feature_schema = FeatureSchema(raw=FeatureTypeInfo(feature_names=["waveform"]))
-    target_schema = TargetSchema(
-        categorical=CategoricalFeatureInfo(
-            feature_names=["class_id"],
-            torch_dtype=torch.long,
-            vocabularies_size=[10],
-            embeddings_dim=[10],
-        )
+    schema = Schema(
+        fields={
+            "waveform": FieldSpec(
+                name="waveform",
+                role="input",
+                value=TensorValueSpec(dtype=torch.float32),
+                shape=TensorShapeSpec(axes=("time",), variable_axes=("time",)),
+                batching=ListBatchingSpec(),
+            ),
+            "class_id": FieldSpec(
+                name="class_id",
+                role="supervision",
+                value=CategoricalValueSpec(dtype=torch.long, cardinality=10),
+                shape=ScalarShapeSpec(),
+                batching=StackBatchingSpec(),
+            ),
+        }
     )
 
     dataset = AudioDataset(
         feature_data=feature_data,
-        feature_schema=feature_schema,
+        schema=schema,
         mel_spectrogram=None,
         audio_root_dir=str(audio_root_dir),
         target_sr=16000,
         samples_keys=samples_keys,
         target_data=target_data,
-        target_schema=target_schema,
-        return_waveform_in_sample=True,
     )
     dataset.setup()
     return dataset
@@ -89,8 +103,8 @@ def test_audio_dataset_resolves_relative_audio_path(audio_root_dir: Path) -> Non
 
     sample = dataset[0]
 
-    assert sample.raw is not None
-    assert sample.raw.shape == (16000,)
+    assert isinstance(sample, Sample)
+    assert sample.fields["waveform"].shape == (16000,)
 
 
 def test_audio_dataset_normalizes_legacy_absolute_audio_path(audio_root_dir: Path) -> None:
@@ -101,8 +115,7 @@ def test_audio_dataset_normalizes_legacy_absolute_audio_path(audio_root_dir: Pat
 
     sample = dataset[0]
 
-    assert sample.raw is not None
-    assert sample.raw.shape == (16000,)
+    assert sample.fields["waveform"].shape == (16000,)
 
 
 def test_audio_dataset_raises_for_unresolvable_audio_path(audio_root_dir: Path) -> None:

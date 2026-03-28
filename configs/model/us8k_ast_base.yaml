@@ -1,7 +1,10 @@
 _target_: src.models.audio_classification_module.AudioClassificationModule
 
-num_classes: 10
-target_name: class_id
+num_classes: ${data.schema.fields.class_id.value.cardinality}
+target_field: ${data.schema.fields.class_id.name}
+input_adapter:
+  _target_: src.models.components.batch_adapter.BatchToModelInputAdapter
+  raw_field: ${data.schema.fields.waveform.name}
 compile: false
 monitor_metric: val/acc
 warmup_type: linear

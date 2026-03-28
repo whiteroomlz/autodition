@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import torch
 
@@ -13,7 +13,7 @@ from src.utils.setuptools import (
 
 @dataclass
 class ModelInput:
-    raw: Optional[Tuple[Any]] = None
+    raw: Optional[Any] = None
     numerical: Optional[torch.Tensor] = None
     categorical: Optional[torch.Tensor] = None
 
@@ -22,14 +22,9 @@ class ModelInput:
 class SequentialModelInput(ModelInput):
     """Sequential model input.
 
-        B - batch size
-        L - Seq length
-        F - features
-    Args:
-        raw: B x ...
-        numerical: B x L x F
-        categorical: B x L x F
-        padding_mask: B x L, ignore elements with mask equals to ZERO. ( 0, False = ignore token )
+    B - batch size
+    L - sequence length
+    F - features
     """
 
     padding_mask: Optional[torch.Tensor] = None
@@ -42,17 +37,10 @@ class ForwardState(ABC):
 
 @dataclass
 class FlatForwardState(ForwardState):
-    """Forward state of the flat block.
-
-        B - batch size
-        E - embedding size
-    Args:
-        hidden_state: B x E
-    """
+    hidden_state: torch.Tensor = None
 
     def __init__(self, hidden_state: torch.Tensor, meta=None):
-        super().__init__(meta=meta if meta is not None else dict())
-
+        super().__init__(meta=meta if meta is not None else {})
         self.hidden_state = hidden_state.clone()
 
     @classmethod
@@ -62,33 +50,22 @@ class FlatForwardState(ForwardState):
 
 @dataclass
 class SequentialForwardState(ForwardState):
-    """Forward state of the sequential block.
-
-        B - batch size
-        L - sequence length
-        E - embedding size
-    Args:
-        hidden_state: B x L x E
-        padding_mask: B x L ignore elements with mask equals to ZERO. ( 0, False = ignore token )
-    """
+    hidden_state: torch.Tensor = None
+    padding_mask: torch.BoolTensor = None
 
     def __init__(self, hidden_state: torch.Tensor, padding_mask: torch.BoolTensor, meta=None):
-        super().__init__(meta=meta if meta is not None else dict())
-
+        super().__init__(meta=meta if meta is not None else {})
         self.hidden_state = hidden_state.clone()
         self.padding_mask = padding_mask.clone()
 
     @classmethod
     def init_without_mask(cls, hidden_state: torch.FloatTensor):
         empty_mask = hidden_state.data.new_ones(hidden_state.shape[:-1], dtype=torch.bool)
-        return cls(hidden_state, empty_mask)  # noqa
+        return cls(hidden_state, empty_mask)
 
     @classmethod
     def clone(cls, input_forward_state):
-        return cls(
-            input_forward_state.hidden_state,
-            input_forward_state.padding_mask,
-        )
+        return cls(input_forward_state.hidden_state, input_forward_state.padding_mask)
 
 
 @dataclass
@@ -98,23 +75,12 @@ class ModelOutput(ABC):
 
 @dataclass
 class ModelOutputForClassification(ModelOutput):
-    """Output state of the classifier.
-
-        B - batch size
-        C - number of classes
-    Args:
-        logits: B x C (multiclass) or B x 1 (binary)
-    """
-
     logits: Optional[torch.FloatTensor] = None
-
-
-# region abstract
 
 
 class Block(torch.nn.Module, ABC):
     @abstractmethod
-    def forward(self, x: Union[ModelInput | ForwardState]) -> Union[ForwardState | ModelOutput]:
+    def forward(self, x: Union[ModelInput, ForwardState]) -> Union[ForwardState, ModelOutput]:
         raise NotImplementedError
 
 
@@ -175,15 +141,11 @@ def setup_modules(module: torch.nn.Module) -> None:
         setup_modules(child_module)
 
 
-# endregion
-
-
 class Model(torch.nn.Module, ABC, metaclass=RequiresSetupABCMeta):
     @staticmethod
     def _coerce_model_input(model_input: Union[ModelInput, Dict]) -> ModelInput:
-        if isinstance(model_input, dict):  # for ONNX support
+        if isinstance(model_input, dict):
             return ModelInput(**model_input)
-
         return model_input
 
     def setup(self) -> None:
@@ -205,6 +167,6 @@ class BlockModel(Model):
         super().__init__()
         self.blocks = torch.nn.Sequential(input_block, *hidden_blocks, output_block)
 
-    def forward(self, model_input: Union[ModelInput | Dict]) -> ModelOutput:
+    def forward(self, model_input: Union[ModelInput, Dict]) -> ModelOutput:
         model_input = self._coerce_model_input(model_input)
         return self.blocks(model_input)

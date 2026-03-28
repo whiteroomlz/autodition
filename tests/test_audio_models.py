@@ -9,9 +9,10 @@ from hydra.core.global_hydra import GlobalHydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import open_dict
 
-from src.data.components.collate import ModelBatch
+from src.data.components.batch import Batch
 from src.models.audio_classification_module import AudioClassificationModule
 from src.models.components.base import SequentialModelInput
+from src.models.components.batch_adapter import BatchToModelInputAdapter
 from src.models.components.full_models.ast import ASTAudioClassifier
 from src.models.components.input_blocks.spectrogram_cnn import SpectrogramCNNEncoder
 
@@ -47,21 +48,23 @@ def test_audio_classification_module_model_step_with_ast_net() -> None:
     )
     module = AudioClassificationModule(
         net=net,
+        input_adapter=BatchToModelInputAdapter(raw_field="waveform"),
         optimizer=hydra.utils.get_object("torch.optim.AdamW"),
         scheduler=None,
         compile=False,
         num_classes=10,
-        target_name="class_id",
+        target_field="class_id",
     )
     module.setup("fit")
 
-    batch = ModelBatch(
+    batch = Batch(
         sample_ids=("a", "b"),
-        raw=(torch.randn(16000), torch.randn(16000)),
-        numerical=None,
-        categorical=None,
-        targets={"class_id": torch.tensor([[0], [1]])},
-        padding_mask=None,
+        fields={
+            "waveform": (torch.randn(16000), torch.randn(16000)),
+            "class_id": torch.tensor([0, 1]),
+        },
+        masks={},
+        meta={},
     )
 
     loss, output, targets = module.model_step(batch)

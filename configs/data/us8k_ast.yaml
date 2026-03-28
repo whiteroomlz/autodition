@@ -1,8 +1,7 @@
 defaults:
-  - feature_schema: us8k_waveform.yaml
-  - target_schema: us8k.yaml
+  - schema: us8k_waveform.yaml
   - raw_data: us8k.yaml
-  - collator: dynamic_collator.yaml
+  - collator: schema_collator.yaml
   - _self_
 
 _target_: src.data.datamodule.AudioDataModule
@@ -11,7 +10,8 @@ audio_path_key: audio_path
 audio_root_dir: ${paths.raw_data_dir}/UrbanSound8K
 target_sr: 16000
 clip_duration_seconds: null
-return_waveform_in_sample: true
+waveform_field_name: waveform
+spectrogram_field_name: null
 mel_spectrogram_cfg: null
 
 train_batch_size: 8
@@ -22,3 +22,4 @@ pin_memory: True
 prefetch_factor: null
 persistent_workers: false
 use_train_balance_sampler: false
+balance_on_field: null

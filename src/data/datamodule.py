@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -10,20 +12,16 @@ from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 
 from src import utils
-from src.utils.setuptools import (
-    RequiresSetupABCMeta,
-    RequiresSetupMeta,
-    requires_setup,
-)
+from src.utils.setuptools import RequiresSetupABCMeta, RequiresSetupMeta, requires_setup
 
 from .components.collate import Collator
-from .components.containers import SequentialFeatureSchema, TargetSchema
 from .components.dataset import AudioDataset, FlatDataset, SequentialDataset
 from .components.preprocessing.audio import AudioPreprocessingUnit, MelSpectrogram
 from .components.preprocessing.sequential import Pipeline
 from .components.preprocessing.sequential.augmentations import Augmentation
 from .components.preprocessing.sequential.transforms import Transform
 from .components.raw_data import DfData
+from .components.schema import Schema
 
 log = utils.RankedLogger(__name__, log_on_rank_zero_only=True)
 
@@ -42,7 +40,7 @@ class RawData(metaclass=RequiresSetupMeta):
         train_keys_cfg: DictConfig,
         val_keys_cfg: DictConfig,
         test_keys_cfg: DictConfig,
-        **kwargs,  # for containing
+        **kwargs,
     ):
         self.feature_data_cfg = feature_data_cfg
         self.target_data_cfg = target_data_cfg
@@ -97,8 +95,7 @@ class DataModule(LightningDataModule, ABC, metaclass=RequiresSetupABCMeta):
 
     def __init__(
         self,
-        feature_schema: SequentialFeatureSchema,
-        target_schema: TargetSchema,
+        schema: Schema,
         raw_data: RawData,
         collator: Collator,
         train_batch_size: int = 64,
@@ -106,48 +103,32 @@ class DataModule(LightningDataModule, ABC, metaclass=RequiresSetupABCMeta):
         test_batch_size: int = 64,
         num_workers: int = 8,
         pin_memory: bool = True,
-        prefetch_factor: int = 2,
+        prefetch_factor: Optional[int] = 2,
         persistent_workers: bool = False,
         use_train_balance_sampler: bool = False,
+        balance_on_field: Optional[str] = None,
     ):
         super().__init__()
-        self.save_hyperparameters(logger=False)
+        self.save_hyperparameters(logger=False, ignore=["schema", "raw_data", "collator"])
 
-        self.feature_schema = feature_schema
-        self.target_schema = target_schema
+        self.schema = schema
         self.raw_data = raw_data
         self.collator = collator
-
         self.train_sampler = None
 
     def prepare_data(self):
-        """Download data if needed.
-
-        Do not use it to assign state (self.x = y).
-        """
         pass
 
     def teardown(self, stage: Optional[str] = None):
-        """Clean up after fit or test."""
         pass
 
     def state_dict(self):
-        """Extra things to save to checkpoint."""
         return dict()
 
     def load_state_dict(self, state_dict: Dict[str, Any]):
-        """Things to do when loading checkpoint."""
         pass
 
     def setup(self, stage: Optional[str] = None):
-        """This method is called by Lightning before `trainer.fit()`, `trainer.validate()`,
-        `trainer.test()`, and `trainer.predict()`, so be careful not to execute things like random
-        split twice! Also, it is called after `self.prepare_data()` and there is a barrier in
-        between which ensures that all the processes proceed to `self.setup()` once the data is
-        prepared and available for use.
-
-        :param stage: The stage to setup. Either `"fit"`, `"validate"`, `"test"`, or `"predict"`. Defaults to ``None``.
-        """
         log.info("Setup datasets...")
 
         self.raw_data.setup()
@@ -159,38 +140,52 @@ class DataModule(LightningDataModule, ABC, metaclass=RequiresSetupABCMeta):
 
         if isinstance(self.train_keys, DfData):
             self.train_keys = (self.train_keys,)
-
         if isinstance(self.val_keys, DfData):
             self.val_keys = (self.val_keys,)
-
         if isinstance(self.test_keys, DfData):
             self.test_keys = (self.test_keys,)
 
-        self.train_datasets = [
-            self._setup_dataset(keys, is_train=True) for keys in self.train_keys
-        ]
+        self.train_datasets = [self._setup_dataset(keys, is_train=True) for keys in self.train_keys]
         self.val_datasets = [self._setup_dataset(keys, is_train=False) for keys in self.val_keys]
         self.test_datasets = [self._setup_dataset(keys, is_train=False) for keys in self.test_keys]
 
         if self.hparams.use_train_balance_sampler:
-            log.info("Setup train balance sampler ...")
+            self._setup_train_balance_sampler()
 
-            targets = np.array(
-                [
-                    self.target_data[self.train_keys[0][idx]["key"]][
-                        self.target_schema.categorical.feature_names[0]
-                    ]
-                    for idx in range(len(self.train_keys[0]))
-                ]
+    def _setup_train_balance_sampler(self) -> None:
+        if self.target_data is None:
+            raise ValueError("Train balance sampling requires target_data")
+
+        balance_field = self.hparams.balance_on_field
+        if balance_field is None:
+            categorical_supervision_fields = self.schema.categorical_supervision_field_names()
+            if len(categorical_supervision_fields) != 1:
+                raise ValueError(
+                    "balance_on_field is required when schema does not expose exactly one "
+                    "categorical supervision field"
+                )
+            balance_field = categorical_supervision_fields[0]
+
+        if balance_field not in self.schema.categorical_supervision_field_names():
+            raise ValueError(
+                f"balance_on_field='{balance_field}' must reference a categorical supervision field"
             )
-            targets_counts = {target: np.sum(targets == target) for target in np.unique(targets)}
 
-            log.info(f"Tgt balance: {targets_counts}")
+        targets = np.array(
+            [
+                self.target_data[self.train_keys[0][idx]["key"]][balance_field]
+                for idx in range(len(self.train_keys[0]))
+            ]
+        )
+        targets_counts = {target: np.sum(targets == target) for target in np.unique(targets)}
+        log.info(f"Tgt balance: {targets_counts}")
 
-            sampler_weights = torch.tensor([1.0 / targets_counts[target] for target in targets])
-            self.train_sampler = WeightedRandomSampler(
-                weights=sampler_weights, num_samples=len(sampler_weights), replacement=True
-            )
+        sampler_weights = torch.tensor([1.0 / targets_counts[target] for target in targets])
+        self.train_sampler = WeightedRandomSampler(
+            weights=sampler_weights,
+            num_samples=len(sampler_weights),
+            replacement=True,
+        )
 
     @abstractmethod
     def _setup_dataset(self, keys: DfData, is_train: bool) -> Dataset:
@@ -239,7 +234,7 @@ class DataModule(LightningDataModule, ABC, metaclass=RequiresSetupABCMeta):
         dataloaders = [
             DataLoader(
                 dataset=dataset,
-                batch_size=self.hparams.val_batch_size,
+                batch_size=self.hparams.test_batch_size,
                 num_workers=self.hparams.num_workers,
                 pin_memory=self.hparams.pin_memory,
                 shuffle=False,
@@ -269,14 +264,12 @@ class DataModule(LightningDataModule, ABC, metaclass=RequiresSetupABCMeta):
 class FlatDataModule(DataModule):
     def _setup_dataset(self, samples_keys: DfData, is_train: bool) -> Dataset:
         dataset = FlatDataset(
-            feature_schema=self.feature_schema,
             feature_data=self.feature_data,
+            schema=self.schema,
             samples_keys=samples_keys,
             target_data=self.target_data,
-            target_schema=self.target_schema,
         )
         dataset.setup()
-
         return dataset
 
 
@@ -285,29 +278,27 @@ class SequentialDataModule(DataModule):
         self,
         transforms_cfg: DictConfig,
         augmentations_cfg: DictConfig,
-        **kwargs
+        sequential_features_key: str = "sequential_features",
+        **kwargs,
     ):
         super().__init__(**kwargs)
-
-        self.transforms: Optional[Pipeline[Transform]] = hydra.utils.instantiate(
-            transforms_cfg
-        )
+        self.sequential_features_key = sequential_features_key
+        self.transforms: Optional[Pipeline[Transform]] = hydra.utils.instantiate(transforms_cfg)
         self.augmentations: Optional[Pipeline[Augmentation]] = hydra.utils.instantiate(
             augmentations_cfg
         )
 
     def _setup_dataset(self, samples_keys: DfData, is_train: bool) -> Dataset:
         dataset = SequentialDataset(
-            feature_schema=self.feature_schema,
             feature_data=self.feature_data,
+            schema=self.schema,
+            sequential_features_key=self.sequential_features_key,
             samples_keys=samples_keys,
             target_data=self.target_data,
-            target_schema=self.target_schema,
             transforms=self.transforms,
             augmentations=self.augmentations if is_train else None,
         )
         dataset.setup()
-
         return dataset
 
 
@@ -319,22 +310,25 @@ class AudioDataModule(DataModule):
         audio_root_dir: Optional[str] = None,
         target_sr: int = 16000,
         clip_duration_seconds: Optional[float] = None,
+        waveform_field_name: Optional[str] = "waveform",
+        spectrogram_field_name: Optional[str] = "mel_spectrogram",
         waveform_augmentations_cfg: Optional[DictConfig] = None,
         spectrogram_augmentations_cfg: Optional[DictConfig] = None,
-        return_waveform_in_sample: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
 
         self.mel_spectrogram: Optional[MelSpectrogram] = (
-            hydra.utils.instantiate(mel_spectrogram_cfg) if mel_spectrogram_cfg is not None else None
+            hydra.utils.instantiate(mel_spectrogram_cfg)
+            if mel_spectrogram_cfg is not None
+            else None
         )
         self.audio_path_key = audio_path_key
         self.audio_root_dir = audio_root_dir
         self.target_sr = target_sr
         self.clip_duration_seconds = clip_duration_seconds
-        self.return_waveform_in_sample = return_waveform_in_sample
-
+        self.waveform_field_name = waveform_field_name
+        self.spectrogram_field_name = spectrogram_field_name
         self.waveform_augmentations: Optional[AudioPreprocessingUnit] = (
             hydra.utils.instantiate(waveform_augmentations_cfg)
             if waveform_augmentations_cfg is not None
@@ -348,20 +342,19 @@ class AudioDataModule(DataModule):
 
     def _setup_dataset(self, samples_keys: DfData, is_train: bool) -> Dataset:
         dataset = AudioDataset(
-            feature_schema=self.feature_schema,
             feature_data=self.feature_data,
+            schema=self.schema,
             mel_spectrogram=self.mel_spectrogram,
             audio_path_key=self.audio_path_key,
             audio_root_dir=self.audio_root_dir,
             target_sr=self.target_sr,
             clip_duration_seconds=self.clip_duration_seconds,
+            waveform_field_name=self.waveform_field_name,
+            spectrogram_field_name=self.spectrogram_field_name,
             samples_keys=samples_keys,
             target_data=self.target_data,
-            target_schema=self.target_schema,
             waveform_augmentations=self.waveform_augmentations if is_train else None,
             spectrogram_augmentations=self.spectrogram_augmentations if is_train else None,
-            return_waveform_in_sample=self.return_waveform_in_sample,
         )
         dataset.setup()
-
         return dataset
