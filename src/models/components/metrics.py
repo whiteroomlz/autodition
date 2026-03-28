@@ -1,3 +1,5 @@
+"""Metric orchestration layer over refs resolved from batches and model outputs."""
+
 from __future__ import annotations
 
 import copy
@@ -13,6 +15,8 @@ from .base import ModelContext, ModelResult, Ref
 
 
 class MetricTerm(torch.nn.Module):
+    """Single named metric updater bound to one or more refs."""
+
     def __init__(self, name: str) -> None:
         super().__init__()
         self.name = name
@@ -28,6 +32,8 @@ class MetricTerm(torch.nn.Module):
 
 
 class SupervisedMetricTerm(MetricTerm):
+    """Metric comparing a prediction ref against a supervision ref."""
+
     def __init__(
         self,
         name: str,
@@ -64,6 +70,8 @@ class SupervisedMetricTerm(MetricTerm):
 
 
 class PairMetricTerm(MetricTerm):
+    """Metric over two arbitrary refs, useful for consistency or reconstruction."""
+
     def __init__(
         self,
         name: str,
@@ -97,6 +105,8 @@ class PairMetricTerm(MetricTerm):
 
 
 class PredictionOnlyMetricTerm(MetricTerm):
+    """Metric consuming only a prediction ref, such as confidence diagnostics."""
+
     def __init__(
         self,
         name: str,
@@ -126,6 +136,8 @@ class PredictionOnlyMetricTerm(MetricTerm):
 
 
 class MetricSuite(torch.nn.Module):
+    """Collection of metric terms updated together during a loop stage."""
+
     def __init__(self, terms: Sequence[MetricTerm]) -> None:
         super().__init__()
         self.terms = torch.nn.ModuleList(terms)

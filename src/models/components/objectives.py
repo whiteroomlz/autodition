@@ -1,3 +1,5 @@
+"""Composable objective layer for losses defined over field, rep, and pred refs."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -13,12 +15,16 @@ from .base import ModelContext, ModelResult, Ref
 
 
 class LossWeight(ABC):
+    """Resolve a scalar multiplier for a loss term, optionally step-dependent."""
+
     @abstractmethod
     def __call__(self, step: Optional[int] = None) -> float:
         raise NotImplementedError
 
 
 class ConstantLossWeight(LossWeight):
+    """Fixed scalar multiplier used by default for most loss terms."""
+
     def __init__(self, value: float = 1.0) -> None:
         self.value = float(value)
 
@@ -27,12 +33,16 @@ class ConstantLossWeight(LossWeight):
 
 
 class Criterion(torch.nn.Module, ABC):
+    """Narrow criterion contract that returns unreduced per-element loss values."""
+
     @abstractmethod
     def forward(self, *args, **kwargs) -> torch.Tensor:
         raise NotImplementedError
 
 
 class CrossEntropyCriterion(Criterion):
+    """Cross-entropy over class logits and integer targets."""
+
     def __init__(self, label_smoothing: float = 0.0) -> None:
         super().__init__()
         self.label_smoothing = label_smoothing
@@ -47,16 +57,22 @@ class CrossEntropyCriterion(Criterion):
 
 
 class MeanSquaredErrorCriterion(Criterion):
+    """Elementwise mean squared error."""
+
     def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         return F.mse_loss(prediction, target, reduction="none")
 
 
 class L1Criterion(Criterion):
+    """Elementwise absolute error."""
+
     def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         return F.l1_loss(prediction, target, reduction="none")
 
 
 class KLDivCriterion(Criterion):
+    """KL divergence for distillation-style logits or distributions."""
+
     def __init__(self, reduction: str = "none", log_target: bool = False) -> None:
         super().__init__()
         self.reduction = reduction
@@ -77,11 +93,15 @@ class KLDivCriterion(Criterion):
 
 
 class SquaredL2Criterion(Criterion):
+    """Squared L2 penalty used for simple regularization terms."""
+
     def forward(self, source: torch.Tensor) -> torch.Tensor:
         return source.square()
 
 
 class LossTerm(torch.nn.Module, ABC):
+    """Single named loss node that reads refs and returns one reduced scalar."""
+
     def __init__(
         self,
         name: str,
@@ -155,6 +175,8 @@ class LossTerm(torch.nn.Module, ABC):
 
 
 class SupervisedLossTerm(LossTerm):
+    """Loss between a prediction ref and a supervision ref."""
+
     def __init__(
         self,
         name: str,
@@ -191,6 +213,8 @@ class SupervisedLossTerm(LossTerm):
 
 
 class ConsistencyLossTerm(LossTerm):
+    """Loss enforcing agreement between two model-side tensors."""
+
     def __init__(
         self,
         name: str,
@@ -227,6 +251,8 @@ class ConsistencyLossTerm(LossTerm):
 
 
 class RegularizationLossTerm(LossTerm):
+    """Loss computed from one source tensor without an explicit supervision target."""
+
     def __init__(
         self,
         name: str,
@@ -253,6 +279,8 @@ class RegularizationLossTerm(LossTerm):
 
 
 class ObjectiveComposer(torch.nn.Module):
+    """Aggregate configured loss terms into total loss plus per-term breakdown."""
+
     def __init__(self, terms: Sequence[LossTerm]) -> None:
         super().__init__()
         self.terms = torch.nn.ModuleList(terms)

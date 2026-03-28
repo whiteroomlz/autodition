@@ -1,3 +1,5 @@
+"""Strict field-based schema contracts for dataset samples and batches."""
+
 from __future__ import annotations
 
 from abc import ABC
@@ -15,16 +17,20 @@ REFERENCE_KINDS = frozenset({"path", "uri", "key", "blob"})
 
 
 class ValueSpec(ABC):
-    """Semantic value contract for a schema field."""
+    """Describe what kind of value a field carries, independent of shape."""
 
 
 @dataclass(frozen=True)
 class TensorValueSpec(ValueSpec):
+    """Dense tensor payload such as audio, images, masks, or embeddings."""
+
     dtype: torch.dtype
 
 
 @dataclass(frozen=True)
 class CategoricalValueSpec(ValueSpec):
+    """Integer-coded categorical target or feature with fixed cardinality."""
+
     dtype: torch.dtype
     cardinality: int
     labels: Tuple[str, ...] = ()
@@ -39,6 +45,8 @@ class CategoricalValueSpec(ValueSpec):
 
 @dataclass(frozen=True)
 class TokenValueSpec(ValueSpec):
+    """Tokenized discrete sequence with explicit vocabulary and special ids."""
+
     dtype: torch.dtype
     vocab_size: int
     pad_id: int
@@ -53,6 +61,8 @@ class TokenValueSpec(ValueSpec):
 
 @dataclass(frozen=True)
 class ReferenceValueSpec(ValueSpec):
+    """External reference such as a path or blob key resolved outside the model."""
+
     ref_kind: ReferenceKind
 
     def __post_init__(self) -> None:
@@ -62,20 +72,26 @@ class ReferenceValueSpec(ValueSpec):
 
 @dataclass(frozen=True)
 class OpaqueValueSpec(ValueSpec):
+    """Structured payload that stays outside dense tensor semantics."""
+
     pass
 
 
 class ShapeSpec(ABC):
-    """Structural contract for a schema field."""
+    """Describe per-sample structure independently from value semantics."""
 
 
 @dataclass(frozen=True)
 class ScalarShapeSpec(ShapeSpec):
+    """Scalar value with no named axes."""
+
     pass
 
 
 @dataclass(frozen=True)
 class TensorShapeSpec(ShapeSpec):
+    """Named tensor axes plus an optional subset of variable-length axes."""
+
     axes: Tuple[str, ...]
     variable_axes: Tuple[str, ...] = ()
 
@@ -95,31 +111,41 @@ class TensorShapeSpec(ShapeSpec):
 
 @dataclass(frozen=True)
 class OpaqueShapeSpec(ShapeSpec):
+    """Non-tensor structure whose shape is intentionally left unspecified."""
+
     pass
 
 
 class BatchingSpec(ABC):
-    """Batch collation contract for a schema field."""
+    """Describe how collators combine field values across samples."""
 
 
 @dataclass(frozen=True)
 class StackBatchingSpec(BatchingSpec):
+    """Require identical per-sample shape and stack values into one tensor."""
+
     pass
 
 
 @dataclass(frozen=True)
 class PadBatchingSpec(BatchingSpec):
+    """Pad a declared variable axis and emit a mask for the padded dimension."""
+
     variable_axis: str
     pad_value: Any = 0
 
 
 @dataclass(frozen=True)
 class ListBatchingSpec(BatchingSpec):
+    """Keep values as a Python list when dense collation is inappropriate."""
+
     pass
 
 
 @dataclass(frozen=True)
 class CustomBatchingSpec(BatchingSpec):
+    """Delegate collation to a named custom handler registered in the collator."""
+
     handler_name: str
 
     def __post_init__(self) -> None:
@@ -128,7 +154,7 @@ class CustomBatchingSpec(BatchingSpec):
 
 
 class RelationSpec(ABC):
-    """Relationship between fields."""
+    """Relationship between fields used for validation and downstream intent."""
 
 
 @dataclass(frozen=True)
@@ -164,6 +190,8 @@ def derived_from(field_name: str) -> DerivedFrom:
 
 @dataclass(frozen=True)
 class FieldSpec:
+    """Single public schema atom describing one named field end to end."""
+
     name: str
     role: FieldRole
     value: ValueSpec
@@ -227,6 +255,8 @@ class FieldSpec:
 
 @dataclass(frozen=True)
 class Schema:
+    """Source of truth for field contracts consumed by datasets and collators."""
+
     fields: Dict[str, FieldSpec]
 
     def __post_init__(self) -> None:

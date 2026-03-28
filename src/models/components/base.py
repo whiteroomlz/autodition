@@ -1,3 +1,5 @@
+"""Core field-native model runtime built around refs, stages, and tensor slots."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -23,6 +25,8 @@ STORE_NAMES = frozenset({"rep", "pred"})
 
 @dataclass(frozen=True)
 class Ref:
+    """Pointer to a tensor source in the runtime: batch field, mask, rep, or pred."""
+
     source: RefSource
     name: str
 
@@ -35,6 +39,8 @@ class Ref:
 
 @dataclass
 class TensorSlot:
+    """Tensor payload optionally paired with a boolean mask."""
+
     value: torch.Tensor
     mask: Optional[torch.BoolTensor] = None
 
@@ -49,6 +55,8 @@ class TensorSlot:
 
 @dataclass
 class ModelContext:
+    """Mutable execution state while a pipeline consumes one collated batch."""
+
     batch: Batch
     reps: Dict[str, TensorSlot] = field(default_factory=dict)
     preds: Dict[str, TensorSlot] = field(default_factory=dict)
@@ -103,6 +111,8 @@ class ModelContext:
 
 @dataclass
 class ModelResult:
+    """Immutable model outputs exposed to objectives, metrics, and callers."""
+
     reps: Dict[str, TensorSlot] = field(default_factory=dict)
     preds: Dict[str, TensorSlot] = field(default_factory=dict)
     meta: Dict[str, Any] = field(default_factory=dict)
@@ -128,6 +138,8 @@ class ModelResult:
 
 
 class Stage(torch.nn.Module, ABC):
+    """Ordered pipeline unit that reads refs and writes named reps or preds."""
+
     def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str], store: StoreName) -> None:
         super().__init__()
         self.inputs = tuple(_coerce_ref(ref) for ref in inputs)
@@ -147,39 +159,53 @@ class Stage(torch.nn.Module, ABC):
 
 
 class EncoderStage(Stage, ABC):
+    """Stage family for producing intermediate representations from batch inputs."""
+
     def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str]) -> None:
         super().__init__(inputs=inputs, outputs=outputs, store="rep")
 
 
 class TransformStage(Stage, ABC):
+    """Stage family for transforming existing reps or preds into new reps."""
+
     def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str]) -> None:
         super().__init__(inputs=inputs, outputs=outputs, store="rep")
 
 
 class HeadStage(Stage, ABC):
+    """Stage family for producing task-facing predictions."""
+
     def __init__(self, inputs: Sequence[Ref], outputs: Sequence[str]) -> None:
         super().__init__(inputs=inputs, outputs=outputs, store="pred")
 
 
 class InputBlock(torch.nn.Module, ABC):
+    """First block inside a BlockModel, consuming one or more resolved input slots."""
+
     @abstractmethod
     def forward(self, inputs: Sequence[TensorSlot], context: ModelContext) -> TensorSlot:
         raise NotImplementedError
 
 
 class HiddenBlock(torch.nn.Module, ABC):
+    """Intermediate block operating on a single slot inside a BlockModel."""
+
     @abstractmethod
     def forward(self, slot: TensorSlot, context: ModelContext) -> TensorSlot:
         raise NotImplementedError
 
 
 class OutputBlock(torch.nn.Module, ABC):
+    """Final block inside a BlockModel, usually producing task-ready tensors."""
+
     @abstractmethod
     def forward(self, slot: TensorSlot, context: ModelContext) -> TensorSlot:
         raise NotImplementedError
 
 
 class Model(torch.nn.Module, ABC, metaclass=RequiresSetupABCMeta):
+    """Top-level model contract: batch in, model result out, setup-aware."""
+
     def setup(self) -> None:
         """Prepare model resources after Hydra instantiation."""
 
@@ -190,6 +216,8 @@ class Model(torch.nn.Module, ABC, metaclass=RequiresSetupABCMeta):
 
 
 class BlockModel(Stage):
+    """Linear stage adapter reusing input, hidden, and output blocks."""
+
     def __init__(
         self,
         inputs: Sequence[Ref],
@@ -215,6 +243,8 @@ class BlockModel(Stage):
 
 
 class PipelineModel(Model):
+    """Explicitly ordered stage pipeline without graph auto-topology magic."""
+
     def __init__(self, stages: Sequence[Stage]) -> None:
         super().__init__()
         self.stages = torch.nn.ModuleList(stages)
@@ -251,6 +281,8 @@ class PipelineModel(Model):
 
 
 class BackboneWithHeads(Model):
+    """Small convenience wrapper for the common backbone-plus-heads layout."""
+
     def __init__(
         self,
         backbone: Sequence[Stage],
@@ -268,6 +300,8 @@ class BackboneWithHeads(Model):
 
 
 def setup_modules(module: torch.nn.Module) -> None:
+    """Recursively call setup on a module tree where components expose it."""
+
     setup_method = getattr(module, SETUP_FUNCTION_NAME, None)
     if callable(setup_method):
         setup_method()
