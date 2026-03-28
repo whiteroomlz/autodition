@@ -38,16 +38,16 @@ eval:  ## Evaluate the model
 # --------- dvc --------- #
 
 dvc-pull:  ## Pull data from DVC remote
-	dvc pull
+	uv run dvc pull
 
 dvc-push:  ## Push data to DVC remote
-	dvc push
+	uv run dvc push
 
 dvc-status:  ## Show DVC status
-	dvc status
+	uv run dvc status
 
 dvc-repro:  ## Reproduce DVC pipeline
-	dvc repro
+	uv run dvc repro
 
 # --------- mlflow --------- #
 
