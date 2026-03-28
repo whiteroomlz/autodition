@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple
 import hydra
 import pytorch_lightning as pl
 import rootutils
+import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers import Logger
@@ -43,6 +44,9 @@ from src.utils.version_control import (
 
 log = RankedLogger(__name__, log_on_rank_zero_only=True)
 register_torch_safe_globals()
+
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision("high")
 
 try:
     OmegaConf.register_new_resolver("eval", eval)  # example: ${eval:${model.net.emb_dim} * 2}

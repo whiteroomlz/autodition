@@ -98,11 +98,14 @@ class ASTAudioClassifier(HeadStage):
         model_config = {
             key: value for key, value in dict(model_config).items() if value is not None
         }
+        id2label, label2id = self._build_label_mappings()
 
         if self.load_pretrained:
             return ASTForAudioClassification.from_pretrained(
                 self.model_name,
                 num_labels=self.num_classes,
+                id2label=id2label,
+                label2id=label2id,
                 ignore_mismatched_sizes=True,
                 attn_implementation=self.attn_implementation,
             )
@@ -111,6 +114,8 @@ class ASTAudioClassifier(HeadStage):
             num_labels=self.num_classes,
             max_length=self.max_length,
             num_mel_bins=self.num_mel_bins,
+            id2label=id2label,
+            label2id=label2id,
             **model_config,
         )
         return ASTForAudioClassification(config)
@@ -146,3 +151,9 @@ class ASTAudioClassifier(HeadStage):
         if self.feature_extractor is None:
             raise RuntimeError("ASTAudioClassifier.setup() must be called before forward().")
         return self.feature_extractor
+
+    def _build_label_mappings(self) -> tuple[Dict[int, str], Dict[str, int]]:
+        label_names = tuple(f"class_{index}" for index in range(self.num_classes))
+        id2label = {index: label_name for index, label_name in enumerate(label_names)}
+        label2id = {label_name: index for index, label_name in enumerate(label_names)}
+        return id2label, label2id
