@@ -1,0 +1,6 @@
+outs:
+- md5: 96b69867e4558103c4f3892ff837f1f1.dir
+  size: 515137
+  nfiles: 6
+  hash: md5
+  path: fuss
