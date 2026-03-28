@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from src.data.components.batch import Sample
-from src.data.components.dataset import AudioDataset
+from src.data.components.dataset import AudioDataset, SourceSeparationDataset
 from src.data.components.raw_data import DfData
 from src.data.components.schema import (
     CategoricalValueSpec,
@@ -89,12 +89,59 @@ def build_dataset(audio_root_dir: Path, audio_path: str) -> AudioDataset:
     return dataset
 
 
+def build_separation_dataset(audio_root_dir: Path, source_audio_paths: tuple[str, ...]) -> SourceSeparationDataset:
+    feature_data = MemoryData({"sample": {"audio_path": "audio/fold1/example.wav"}})
+    target_data = MemoryData({"sample": {"source_audio_paths": source_audio_paths}})
+    samples_keys = MemoryData({0: {"key": "sample"}})
+
+    schema = Schema(
+        fields={
+            "mixture_audio": FieldSpec(
+                name="mixture_audio",
+                role="input",
+                value=TensorValueSpec(dtype=torch.float32),
+                shape=TensorShapeSpec(axes=("time",), variable_axes=("time",)),
+                batching=ListBatchingSpec(),
+            ),
+            "sources_audio": FieldSpec(
+                name="sources_audio",
+                role="supervision",
+                value=TensorValueSpec(dtype=torch.float32),
+                shape=TensorShapeSpec(axes=("source", "time"), variable_axes=("time",)),
+                batching=ListBatchingSpec(),
+            ),
+            "source_activity": FieldSpec(
+                name="source_activity",
+                role="weight",
+                value=TensorValueSpec(dtype=torch.bool),
+                shape=TensorShapeSpec(axes=("source",)),
+                batching=StackBatchingSpec(),
+            ),
+        }
+    )
+
+    dataset = SourceSeparationDataset(
+        feature_data=feature_data,
+        schema=schema,
+        audio_root_dir=str(audio_root_dir),
+        target_sr=16000,
+        clip_duration_seconds=1.0,
+        samples_keys=samples_keys,
+        target_data=target_data,
+        max_num_sources=4,
+    )
+    dataset.setup()
+    return dataset
+
+
 @pytest.fixture()
 def audio_root_dir(tmp_path: Path) -> Path:
     audio_root_dir = tmp_path / "data" / "raw" / "UrbanSound8K"
     audio_path = audio_root_dir / "audio" / "fold1" / "example.wav"
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     write_wav(audio_path)
+    write_wav(audio_root_dir / "audio" / "fold1" / "source1.wav", num_samples=12000)
+    write_wav(audio_root_dir / "audio" / "fold1" / "source2.wav", num_samples=16000)
     return audio_root_dir
 
 
@@ -122,4 +169,33 @@ def test_audio_dataset_raises_for_unresolvable_audio_path(audio_root_dir: Path) 
     dataset = build_dataset(audio_root_dir, "audio/fold1/missing.wav")
 
     with pytest.raises(FileNotFoundError):
+        dataset[0]
+
+
+def test_source_separation_dataset_pads_sources_and_builds_activity(audio_root_dir: Path) -> None:
+    dataset = build_separation_dataset(
+        audio_root_dir,
+        ("audio/fold1/source1.wav", "audio/fold1/source2.wav"),
+    )
+
+    sample = dataset[0]
+
+    assert sample.fields["mixture_audio"].shape == (16000,)
+    assert sample.fields["sources_audio"].shape == (4, 16000)
+    assert sample.fields["source_activity"].tolist() == [True, True, False, False]
+
+
+def test_source_separation_dataset_raises_when_source_count_exceeds_limit(audio_root_dir: Path) -> None:
+    dataset = build_separation_dataset(
+        audio_root_dir,
+        (
+            "audio/fold1/source1.wav",
+            "audio/fold1/source2.wav",
+            "audio/fold1/example.wav",
+            "audio/fold1/source1.wav",
+            "audio/fold1/source2.wav",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="max_num_sources"):
         dataset[0]

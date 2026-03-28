@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import soundfile as sf
 import torch
@@ -208,59 +208,26 @@ class SequentialDataset(Dataset):
         return sequential_features, meta
 
 
-class AudioDataset(Dataset):
+class BaseAudioDataset(Dataset):
     def __init__(
         self,
         feature_data: DfData,
         schema: Schema,
-        mel_spectrogram: Optional[MelSpectrogram],
         audio_path_key: str = "audio_path",
         audio_root_dir: Optional[str] = None,
         target_sr: int = 16000,
         clip_duration_seconds: Optional[float] = None,
-        waveform_field_name: Optional[str] = "waveform",
-        spectrogram_field_name: Optional[str] = "mel_spectrogram",
         samples_keys: Optional[DfData] = None,
         target_data: Optional[DfData] = None,
-        waveform_augmentations: Optional[AudioPreprocessingUnit] = None,
-        spectrogram_augmentations: Optional[AudioPreprocessingUnit] = None,
     ):
         super().__init__(feature_data, schema, samples_keys, target_data)
         self._audio_path_key = audio_path_key
         self._audio_root_dir = Path(audio_root_dir) if audio_root_dir is not None else None
         self._target_sr = target_sr
-        self._mel_spectrogram = mel_spectrogram
         self._clip_duration_seconds = clip_duration_seconds
-        self._waveform_field_name = waveform_field_name
-        self._spectrogram_field_name = spectrogram_field_name
-        self._waveform_augmentations = (
-            waveform_augmentations if waveform_augmentations is not None else AudioSkip()
-        )
-        self._spectrogram_augmentations = (
-            spectrogram_augmentations if spectrogram_augmentations is not None else AudioSkip()
-        )
 
     def _len(self):
         return len(self._samples_keys)
-
-    def _getitem(self, index: int) -> Sample:
-        sample_id, feature_record, target_record = self._read_sample(index)
-
-        waveform = self._load_audio(feature_record[self._audio_path_key])
-        waveform = self._trim_or_pad_waveform(waveform)
-        waveform = self._waveform_augmentations(waveform)
-
-        merged_record = self._merge_records(feature_record, target_record)
-        if self._waveform_field_name is not None:
-            merged_record[self._waveform_field_name] = waveform.squeeze(0)
-
-        if self._mel_spectrogram is not None and self._spectrogram_field_name is not None:
-            spectrogram = self._mel_spectrogram(waveform)
-            spectrogram = self._spectrogram_augmentations(spectrogram)
-            merged_record[self._spectrogram_field_name] = spectrogram
-
-        fields, meta = self._pack_sample(merged_record)
-        return Sample(sample_id=sample_id, fields=fields, meta=meta)
 
     def _read_sample(self, index: int) -> Tuple[Key, Record, Optional[Record]]:
         (key,) = self._samples_keys[index].values()
@@ -352,3 +319,153 @@ class AudioDataset(Dataset):
 
         relative_audio_path = Path(*audio_path.parts[dataset_root_index + 1 :])
         return self._audio_root_dir / relative_audio_path
+
+
+class AudioDataset(BaseAudioDataset):
+    def __init__(
+        self,
+        feature_data: DfData,
+        schema: Schema,
+        mel_spectrogram: Optional[MelSpectrogram],
+        audio_path_key: str = "audio_path",
+        audio_root_dir: Optional[str] = None,
+        target_sr: int = 16000,
+        clip_duration_seconds: Optional[float] = None,
+        waveform_field_name: Optional[str] = "waveform",
+        spectrogram_field_name: Optional[str] = "mel_spectrogram",
+        samples_keys: Optional[DfData] = None,
+        target_data: Optional[DfData] = None,
+        waveform_augmentations: Optional[AudioPreprocessingUnit] = None,
+        spectrogram_augmentations: Optional[AudioPreprocessingUnit] = None,
+    ):
+        super().__init__(
+            feature_data=feature_data,
+            schema=schema,
+            audio_path_key=audio_path_key,
+            audio_root_dir=audio_root_dir,
+            target_sr=target_sr,
+            clip_duration_seconds=clip_duration_seconds,
+            samples_keys=samples_keys,
+            target_data=target_data,
+        )
+        self._mel_spectrogram = mel_spectrogram
+        self._waveform_field_name = waveform_field_name
+        self._spectrogram_field_name = spectrogram_field_name
+        self._waveform_augmentations = (
+            waveform_augmentations if waveform_augmentations is not None else AudioSkip()
+        )
+        self._spectrogram_augmentations = (
+            spectrogram_augmentations if spectrogram_augmentations is not None else AudioSkip()
+        )
+
+    def _getitem(self, index: int) -> Sample:
+        sample_id, feature_record, target_record = self._read_sample(index)
+
+        waveform = self._load_audio(feature_record[self._audio_path_key])
+        waveform = self._trim_or_pad_waveform(waveform)
+        waveform = self._waveform_augmentations(waveform)
+
+        merged_record = self._merge_records(feature_record, target_record)
+        if self._waveform_field_name is not None:
+            merged_record[self._waveform_field_name] = waveform.squeeze(0)
+
+        if self._mel_spectrogram is not None and self._spectrogram_field_name is not None:
+            spectrogram = self._mel_spectrogram(waveform)
+            spectrogram = self._spectrogram_augmentations(spectrogram)
+            merged_record[self._spectrogram_field_name] = spectrogram
+
+        fields, meta = self._pack_sample(merged_record)
+        return Sample(sample_id=sample_id, fields=fields, meta=meta)
+
+
+class SourceSeparationDataset(BaseAudioDataset):
+    def __init__(
+        self,
+        feature_data: DfData,
+        schema: Schema,
+        audio_path_key: str = "audio_path",
+        source_audio_paths_key: str = "source_audio_paths",
+        audio_root_dir: Optional[str] = None,
+        target_sr: int = 16000,
+        clip_duration_seconds: Optional[float] = None,
+        mixture_field_name: str = "mixture_audio",
+        sources_field_name: str = "sources_audio",
+        source_activity_field_name: Optional[str] = "source_activity",
+        max_num_sources: int = 4,
+        samples_keys: Optional[DfData] = None,
+        target_data: Optional[DfData] = None,
+    ):
+        super().__init__(
+            feature_data=feature_data,
+            schema=schema,
+            audio_path_key=audio_path_key,
+            audio_root_dir=audio_root_dir,
+            target_sr=target_sr,
+            clip_duration_seconds=clip_duration_seconds,
+            samples_keys=samples_keys,
+            target_data=target_data,
+        )
+        self._source_audio_paths_key = source_audio_paths_key
+        self._mixture_field_name = mixture_field_name
+        self._sources_field_name = sources_field_name
+        self._source_activity_field_name = source_activity_field_name
+        self._max_num_sources = max_num_sources
+
+    def _getitem(self, index: int) -> Sample:
+        sample_id, feature_record, target_record = self._read_sample(index)
+        if target_record is None:
+            raise ValueError("SourceSeparationDataset requires target_data with source paths")
+
+        mixture_waveform = self._load_audio(feature_record[self._audio_path_key])
+        mixture_waveform = self._trim_or_pad_waveform(mixture_waveform)
+
+        source_paths = tuple(target_record.get(self._source_audio_paths_key, ()))
+        source_waveforms = self._load_sources(source_paths)
+        source_activity = self._build_source_activity(len(source_paths))
+
+        merged_record = self._merge_records(feature_record, target_record)
+        merged_record[self._mixture_field_name] = mixture_waveform.squeeze(0)
+        merged_record[self._sources_field_name] = source_waveforms
+        if self._source_activity_field_name is not None:
+            merged_record[self._source_activity_field_name] = source_activity
+
+        fields, meta = self._pack_sample(merged_record)
+        return Sample(sample_id=sample_id, fields=fields, meta=meta)
+
+    def _load_sources(self, source_paths: Tuple[str, ...]) -> torch.Tensor:
+        if len(source_paths) > self._max_num_sources:
+            raise ValueError(
+                f"Source sample contains {len(source_paths)} sources, "
+                f"but max_num_sources={self._max_num_sources}"
+            )
+
+        source_waveforms: List[torch.Tensor] = []
+        for source_path in source_paths:
+            waveform = self._load_audio(source_path)
+            waveform = self._trim_or_pad_waveform(waveform)
+            source_waveforms.append(waveform.squeeze(0))
+
+        if not source_waveforms:
+            zero_waveform = torch.zeros(self._target_num_samples(), dtype=torch.float32)
+            source_waveforms = [zero_waveform]
+
+        padded_sources = list(source_waveforms)
+        zero_source = torch.zeros_like(source_waveforms[0])
+        while len(padded_sources) < self._max_num_sources:
+            padded_sources.append(zero_source.clone())
+
+        return torch.stack(padded_sources, dim=0)
+
+    def _build_source_activity(self, num_sources: int) -> torch.Tensor:
+        source_activity = torch.zeros(self._max_num_sources, dtype=torch.bool)
+        if num_sources > 0:
+            source_activity[:num_sources] = True
+        return source_activity
+
+    def _target_num_samples(self) -> int:
+        if self._clip_duration_seconds is None:
+            raise ValueError(
+                "SourceSeparationDataset requires clip_duration_seconds "
+                "when samples may contain no active sources"
+            )
+        return int(round(self._clip_duration_seconds * self._target_sr))

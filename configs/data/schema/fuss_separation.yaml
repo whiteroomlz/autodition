@@ -1,0 +1,60 @@
+_target_: src.data.components.schema.Schema
+
+fields:
+  mixture_audio:
+    _target_: src.data.components.schema.FieldSpec
+    name: mixture_audio
+    role: input
+    value:
+      _target_: src.data.components.schema.TensorValueSpec
+      dtype:
+        _target_: src.utils.utils.torch_dtype
+        dtype: float32
+    shape:
+      _target_: src.data.components.schema.TensorShapeSpec
+      axes: [time]
+      variable_axes: [time]
+    batching:
+      _target_: src.data.components.schema.PadBatchingSpec
+      variable_axis: time
+      pad_value: 0.0
+    required: true
+
+  sources_audio:
+    _target_: src.data.components.schema.FieldSpec
+    name: sources_audio
+    role: supervision
+    value:
+      _target_: src.data.components.schema.TensorValueSpec
+      dtype:
+        _target_: src.utils.utils.torch_dtype
+        dtype: float32
+    shape:
+      _target_: src.data.components.schema.TensorShapeSpec
+      axes: [source, time]
+      variable_axes: [time]
+    batching:
+      _target_: src.data.components.schema.PadBatchingSpec
+      variable_axis: time
+      pad_value: 0.0
+    relations:
+      - _target_: src.data.components.schema.AlignedWith
+        field_name: mixture_audio
+        axes: [time]
+    required: true
+
+  source_activity:
+    _target_: src.data.components.schema.FieldSpec
+    name: source_activity
+    role: weight
+    value:
+      _target_: src.data.components.schema.TensorValueSpec
+      dtype:
+        _target_: src.utils.utils.torch_dtype
+        dtype: bool
+    shape:
+      _target_: src.data.components.schema.TensorShapeSpec
+      axes: [source]
+    batching:
+      _target_: src.data.components.schema.StackBatchingSpec
+    required: true
