@@ -1,0 +1,43 @@
+defaults:
+  - /objective@objectives: separation_pit_sisdr
+  - /metrics@metrics: separation_waveform
+  - _self_
+
+_target_: src.models.task_module.TaskModule
+
+prediction_name: sources_audio
+compile: false
+monitor_metric: val/si_sdr
+monitor_metric_mode: max
+warmup_type: null
+warmup_rate: null
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 3e-4
+  weight_decay: 1e-4
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  _partial_: true
+  T_max: 100
+  eta_min: 1e-6
+
+model:
+  _target_: src.models.components.base.PipelineModel
+
+  stages:
+    - _target_: src.models.components.full_models.sudormrf.SuDORMRFSeparator
+      inputs:
+        - _target_: src.models.components.base.Ref
+          source: field
+          name: ${data.schema.fields.mixture_audio.name}
+      output_name: ${model.prediction_name}
+      num_sources: ${data.max_num_sources}
+      out_channels: 128
+      bottleneck_channels: 256
+      num_blocks: 8
+      upsampling_depth: 4
+      enc_kernel_size: 21
+      enc_num_basis: 256

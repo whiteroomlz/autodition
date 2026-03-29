@@ -15,7 +15,12 @@ from src import utils
 from src.utils.setuptools import RequiresSetupABCMeta, RequiresSetupMeta, requires_setup
 
 from .components.collate import Collator
-from .components.dataset import AudioDataset, FlatDataset, SequentialDataset
+from .components.dataset import (
+    AudioDataset,
+    FlatDataset,
+    SequentialDataset,
+    SourceSeparationDataset,
+)
 from .components.preprocessing.audio import AudioPreprocessingUnit, MelSpectrogram
 from .components.preprocessing.sequential import Pipeline
 from .components.preprocessing.sequential.augmentations import Augmentation
@@ -302,7 +307,23 @@ class SequentialDataModule(DataModule):
         return dataset
 
 
-class AudioDataModule(DataModule):
+class BaseAudioDataModule(DataModule):
+    def __init__(
+        self,
+        audio_path_key: str = "audio_path",
+        audio_root_dir: Optional[str] = None,
+        target_sr: int = 16000,
+        clip_duration_seconds: Optional[float] = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.audio_path_key = audio_path_key
+        self.audio_root_dir = audio_root_dir
+        self.target_sr = target_sr
+        self.clip_duration_seconds = clip_duration_seconds
+
+
+class AudioDataModule(BaseAudioDataModule):
     def __init__(
         self,
         mel_spectrogram_cfg: Optional[DictConfig],
@@ -316,17 +337,19 @@ class AudioDataModule(DataModule):
         spectrogram_augmentations_cfg: Optional[DictConfig] = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__(
+            audio_path_key=audio_path_key,
+            audio_root_dir=audio_root_dir,
+            target_sr=target_sr,
+            clip_duration_seconds=clip_duration_seconds,
+            **kwargs,
+        )
 
         self.mel_spectrogram: Optional[MelSpectrogram] = (
             hydra.utils.instantiate(mel_spectrogram_cfg)
             if mel_spectrogram_cfg is not None
             else None
         )
-        self.audio_path_key = audio_path_key
-        self.audio_root_dir = audio_root_dir
-        self.target_sr = target_sr
-        self.clip_duration_seconds = clip_duration_seconds
         self.waveform_field_name = waveform_field_name
         self.spectrogram_field_name = spectrogram_field_name
         self.waveform_augmentations: Optional[AudioPreprocessingUnit] = (
@@ -355,6 +378,53 @@ class AudioDataModule(DataModule):
             target_data=self.target_data,
             waveform_augmentations=self.waveform_augmentations if is_train else None,
             spectrogram_augmentations=self.spectrogram_augmentations if is_train else None,
+        )
+        dataset.setup()
+        return dataset
+
+
+class SourceSeparationDataModule(BaseAudioDataModule):
+    def __init__(
+        self,
+        audio_path_key: str = "audio_path",
+        source_audio_paths_key: str = "source_audio_paths",
+        audio_root_dir: Optional[str] = None,
+        target_sr: int = 16000,
+        clip_duration_seconds: Optional[float] = 10.0,
+        mixture_field_name: str = "mixture_audio",
+        sources_field_name: str = "sources_audio",
+        source_activity_field_name: Optional[str] = "source_activity",
+        max_num_sources: int = 4,
+        **kwargs,
+    ):
+        super().__init__(
+            audio_path_key=audio_path_key,
+            audio_root_dir=audio_root_dir,
+            target_sr=target_sr,
+            clip_duration_seconds=clip_duration_seconds,
+            **kwargs,
+        )
+        self.source_audio_paths_key = source_audio_paths_key
+        self.mixture_field_name = mixture_field_name
+        self.sources_field_name = sources_field_name
+        self.source_activity_field_name = source_activity_field_name
+        self.max_num_sources = max_num_sources
+
+    def _setup_dataset(self, samples_keys: DfData, is_train: bool) -> Dataset:
+        dataset = SourceSeparationDataset(
+            feature_data=self.feature_data,
+            schema=self.schema,
+            audio_path_key=self.audio_path_key,
+            source_audio_paths_key=self.source_audio_paths_key,
+            audio_root_dir=self.audio_root_dir,
+            target_sr=self.target_sr,
+            clip_duration_seconds=self.clip_duration_seconds,
+            mixture_field_name=self.mixture_field_name,
+            sources_field_name=self.sources_field_name,
+            source_activity_field_name=self.source_activity_field_name,
+            max_num_sources=self.max_num_sources,
+            samples_keys=samples_keys,
+            target_data=self.target_data,
         )
         dataset.setup()
         return dataset

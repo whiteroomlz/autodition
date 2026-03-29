@@ -51,6 +51,7 @@ dev = [
     "notebook>=7.3",
     "nbstripout>=0.8",
     "datasets>=3.0",
+    "kaggle>=1.7",
     "commitizen>=4.1",
 ]
 

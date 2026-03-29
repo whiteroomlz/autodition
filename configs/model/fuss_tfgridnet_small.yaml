@@ -1,0 +1,47 @@
+defaults:
+  - /objective@objectives: separation_pit_hybrid
+  - /metrics@metrics: separation_waveform
+  - _self_
+
+_target_: src.models.task_module.TaskModule
+
+prediction_name: sources_audio
+compile: false
+monitor_metric: val/si_sdr
+monitor_metric_mode: max
+warmup_type: linear
+warmup_rate: 0.1
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 2e-4
+  weight_decay: 1e-4
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  _partial_: true
+  T_max: 120
+  eta_min: 1e-6
+
+model:
+  _target_: src.models.components.base.PipelineModel
+
+  stages:
+    - _target_: src.models.components.full_models.tfgridnet.TFGridNetSeparator
+      inputs:
+        - _target_: src.models.components.base.Ref
+          source: field
+          name: ${data.schema.fields.mixture_audio.name}
+      output_name: ${model.prediction_name}
+      num_sources: ${data.max_num_sources}
+      n_fft: 512
+      hop_length: 128
+      num_layers: 4
+      lstm_hidden_units: 96
+      emb_dim: 32
+      emb_kernel_size: 4
+      emb_hop_size: 1
+      num_heads: 4
+      approx_qk_dim: 256
+      activation: prelu

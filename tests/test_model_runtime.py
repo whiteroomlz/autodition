@@ -16,11 +16,19 @@ from src.models.components.base import (
     setup_modules,
 )
 from src.models.components.composition.concat import ConcatFields
-from src.models.components.metrics import MetricSuite
+from src.models.components.metrics import (
+    MetricSuite,
+    PermutationInvariantSISDRMetricTerm,
+    SummedSourcesMetricTerm,
+)
 from src.models.components.objectives import (
     CrossEntropyCriterion,
+    L1Criterion,
     MeanSquaredErrorCriterion,
+    NegativeSISDRCriterion,
     ObjectiveComposer,
+    PermutationInvariantLossTerm,
+    SummedSourcesConsistencyLossTerm,
     SupervisedLossTerm,
 )
 from src.models.task_module import TaskModule
@@ -272,6 +280,149 @@ def test_task_module_supports_dense_source_separation_supervision() -> None:
 
     assert loss.ndim == 0
     assert result.preds["sources_audio"].value.shape == (2, 2, 5)
+
+
+def test_permutation_invariant_loss_term_is_invariant_to_source_order() -> None:
+    prediction = torch.tensor(
+        [[[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]],
+        dtype=torch.float32,
+    )
+    target = torch.tensor(
+        [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
+        dtype=torch.float32,
+    )
+    activity = torch.tensor([[True, True]])
+    batch = Batch(
+        sample_ids=("a",),
+        fields={
+            "sources_audio": target,
+            "source_activity": activity,
+        },
+        masks={"sources_audio": torch.ones(1, 3, dtype=torch.bool)},
+        meta={},
+    )
+    result = type("Result", (), {"reps": {}, "preds": {"sources_audio": TensorSlot(value=prediction)}})()
+    term = PermutationInvariantLossTerm(
+        name="separation",
+        prediction_ref=Ref(source="pred", name="sources_audio"),
+        target_ref=Ref(source="field", name="sources_audio"),
+        activity_ref=Ref(source="field", name="source_activity"),
+        mask_ref=Ref(source="mask", name="sources_audio"),
+        criterion=NegativeSISDRCriterion(),
+    )
+
+    loss = term(batch=batch, result=result)
+
+    assert loss.ndim == 0
+    assert loss.item() < -50.0
+
+
+def test_permutation_invariant_metric_term_tracks_si_sdri() -> None:
+    prediction = torch.tensor(
+        [[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
+        dtype=torch.float32,
+    )
+    target = torch.tensor(
+        [[[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]],
+        dtype=torch.float32,
+    )
+    mixture = target.sum(dim=1)
+    activity = torch.tensor([[True, True]])
+    batch = Batch(
+        sample_ids=("a",),
+        fields={
+            "mixture_audio": mixture,
+            "sources_audio": target,
+            "source_activity": activity,
+        },
+        masks={
+            "mixture_audio": torch.ones(1, 3, dtype=torch.bool),
+            "sources_audio": torch.ones(1, 3, dtype=torch.bool),
+        },
+        meta={},
+    )
+    result = type("Result", (), {"reps": {}, "preds": {"sources_audio": TensorSlot(value=prediction)}})()
+    metric_suite = MetricSuite(
+        terms=[
+            PermutationInvariantSISDRMetricTerm(
+                name="si_sdri",
+                prediction_ref=Ref(source="pred", name="sources_audio"),
+                target_ref=Ref(source="field", name="sources_audio"),
+                activity_ref=Ref(source="field", name="source_activity"),
+                baseline_ref=Ref(source="field", name="mixture_audio"),
+                mask_ref=Ref(source="mask", name="sources_audio"),
+            ),
+            SummedSourcesMetricTerm(
+                name="mixture_l1",
+                sources_ref=Ref(source="pred", name="sources_audio"),
+                target_ref=Ref(source="field", name="mixture_audio"),
+                mask_ref=Ref(source="mask", name="mixture_audio"),
+                metric=hydra.utils.instantiate({"_target_": "torchmetrics.aggregation.MeanMetric"}),
+            ),
+        ]
+    )
+
+    metric_suite.update(batch=batch, result=result)
+    metrics = metric_suite.metric_objects()
+
+    assert metrics["si_sdri"].compute().ndim == 0
+    assert metrics["mixture_l1"].compute().ndim == 0
+
+
+def test_task_module_supports_permutation_invariant_source_separation() -> None:
+    model = PipelineModel(
+        stages=[
+            FakeSeparatorHead(Ref(source="field", name="mixture_audio"), "sources_audio"),
+        ]
+    )
+    module = TaskModule(
+        model=model,
+        objectives=ObjectiveComposer(
+            terms=[
+                PermutationInvariantLossTerm(
+                    name="separation",
+                    prediction_ref=Ref(source="pred", name="sources_audio"),
+                    target_ref=Ref(source="field", name="sources_audio"),
+                    activity_ref=Ref(source="field", name="source_activity"),
+                    mask_ref=Ref(source="mask", name="sources_audio"),
+                    criterion=NegativeSISDRCriterion(),
+                ),
+                SummedSourcesConsistencyLossTerm(
+                    name="mixture_consistency",
+                    sources_ref=Ref(source="pred", name="sources_audio"),
+                    target_ref=Ref(source="field", name="mixture_audio"),
+                    mask_ref=Ref(source="mask", name="mixture_audio"),
+                    criterion=L1Criterion(),
+                ),
+            ]
+        ),
+        metrics=MetricSuite(terms=[]),
+        optimizer=_optimizer_factory(),
+        scheduler=None,
+        compile=False,
+        monitor_metric="val/loss",
+        monitor_metric_mode="min",
+    )
+    module.setup("fit")
+
+    batch = Batch(
+        sample_ids=("a", "b"),
+        fields={
+            "mixture_audio": torch.randn(2, 5),
+            "sources_audio": torch.randn(2, 2, 5),
+            "source_activity": torch.tensor([[True, True], [True, False]]),
+        },
+        masks={
+            "mixture_audio": torch.tensor([[True, True, True, True, True], [True, True, True, False, False]]),
+            "sources_audio": torch.tensor([[True, True, True, True, True], [True, True, True, False, False]]),
+        },
+        meta={},
+    )
+    loss, result, term_losses = module.model_step(batch, split="train")
+
+    assert loss.ndim == 0
+    assert result.preds["sources_audio"].value.shape == (2, 2, 5)
+    assert set(term_losses) == {"separation", "mixture_consistency"}
 
 
 def test_pipeline_model_supports_composite_audio_pipeline() -> None:

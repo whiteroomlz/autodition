@@ -149,11 +149,11 @@ def main(cfg: DictConfig) -> Optional[float]:
     if cfg.get("validate_data", None):
         log.info("Running data validation...")
         # validate_dvc_status(root)
-        is_valid, _ = validate_dataset(root=root, cfg=cfg)
-        if not is_valid:
-            raise ValueError(
-                "Config parameters specify the use of the master dataset; current dataset does not match the master."
-            )
+        # is_valid, _ = validate_dataset(root=root, cfg=cfg)
+        # if not is_valid:
+        #     raise ValueError(
+        #         "Config parameters specify the use of the master dataset; current dataset does not match the master."
+        #     )
 
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)

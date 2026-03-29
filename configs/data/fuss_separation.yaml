@@ -1,0 +1,27 @@
+defaults:
+  - schema: fuss_separation.yaml
+  - raw_data: fuss.yaml
+  - collator: schema_collator.yaml
+  - _self_
+
+_target_: src.data.datamodule.SourceSeparationDataModule
+
+audio_path_key: audio_path
+source_audio_paths_key: source_audio_paths
+audio_root_dir: ${paths.raw_data_dir}/FUSS
+target_sr: 16000
+clip_duration_seconds: 10.0
+mixture_field_name: mixture_audio
+sources_field_name: sources_audio
+source_activity_field_name: source_activity
+max_num_sources: 4
+
+train_batch_size: 4
+val_batch_size: 4
+test_batch_size: 4
+num_workers: 8
+pin_memory: true
+prefetch_factor: null
+persistent_workers: false
+use_train_balance_sampler: false
+balance_on_field: null

@@ -13,6 +13,8 @@ from torchmetrics.classification import MulticlassAccuracy
 from src.data.components.batch import Batch
 from src.models.components.base import BlockModel, ModelContext, PipelineModel, Ref, setup_modules
 from src.models.components.full_models.ast import ASTAudioClassifier
+from src.models.components.full_models.sudormrf import SuDORMRFSeparator
+from src.models.components.full_models.tfgridnet import TFGridNetSeparator
 from src.models.components.input_blocks.spectrogram_cnn import SpectrogramCNNEncoder
 from src.models.components.metrics import MetricSuite, SupervisedMetricTerm
 from src.models.components.objectives import (
@@ -119,6 +121,67 @@ def test_task_module_model_step_with_ast_stage() -> None:
     assert term_losses["classification"].ndim == 0
 
 
+def test_sudormrf_separator_outputs_sources_audio() -> None:
+    model = PipelineModel(
+        stages=[
+            SuDORMRFSeparator(
+                inputs=[Ref(source="field", name="mixture_audio")],
+                output_name="sources_audio",
+                num_sources=4,
+                out_channels=64,
+                bottleneck_channels=128,
+                num_blocks=2,
+                upsampling_depth=3,
+                enc_kernel_size=9,
+                enc_num_basis=64,
+            )
+        ]
+    )
+    setup_modules(model)
+
+    batch = Batch(
+        sample_ids=("a", "b"),
+        fields={"mixture_audio": torch.randn(2, 8000)},
+        masks={"mixture_audio": torch.ones(2, 8000, dtype=torch.bool)},
+        meta={},
+    )
+    result = model(batch)
+
+    assert result.preds["sources_audio"].value.shape == (2, 4, 8000)
+
+
+def test_tfgridnet_separator_outputs_sources_audio() -> None:
+    model = PipelineModel(
+        stages=[
+            TFGridNetSeparator(
+                inputs=[Ref(source="field", name="mixture_audio")],
+                output_name="sources_audio",
+                num_sources=4,
+                n_fft=128,
+                hop_length=32,
+                num_layers=1,
+                lstm_hidden_units=32,
+                emb_dim=16,
+                emb_kernel_size=2,
+                emb_hop_size=1,
+                num_heads=4,
+                approx_qk_dim=64,
+            )
+        ]
+    )
+    setup_modules(model)
+
+    batch = Batch(
+        sample_ids=("a", "b"),
+        fields={"mixture_audio": torch.randn(2, 2048)},
+        masks={"mixture_audio": torch.ones(2, 2048, dtype=torch.bool)},
+        meta={},
+    )
+    result = model(batch)
+
+    assert result.preds["sources_audio"].value.shape == (2, 4, 2048)
+
+
 def test_ast_audio_classifier_requires_setup() -> None:
     stage = ASTAudioClassifier(
         inputs=[Ref(source="field", name="waveform")],
@@ -146,7 +209,12 @@ def test_ast_audio_classifier_requires_setup() -> None:
 
 @pytest.mark.parametrize(
     "experiment_name",
-    ["us8k_cnn_baseline", "us8k_ast_finetune"],
+    [
+        "us8k_cnn_baseline",
+        "us8k_ast_finetune",
+        "fuss_sudormrf_baseline",
+        "fuss_tfgridnet_small",
+    ],
 )
 def test_us8k_experiment_configs_instantiate(
     experiment_name: str,
