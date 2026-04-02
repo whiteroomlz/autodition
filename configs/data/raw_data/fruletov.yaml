@@ -1,0 +1,25 @@
+_target_: src.data.datamodule.RawData
+_recursive_: false
+
+dataset_dir: ${paths.preprocessed_data_dir}/fruletov/
+
+feature_data_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fruletov/features.pkl
+
+target_data_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fruletov/targets.pkl
+
+train_keys_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fruletov/train_keys.pkl
+
+val_keys_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fruletov/val_keys.pkl
+
+test_keys_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fruletov/test_keys.pkl
+
