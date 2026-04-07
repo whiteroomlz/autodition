@@ -1,0 +1,6 @@
+outs:
+- md5: 15eeb3aaa19133f3930d9de865b4444f.dir
+  size: 3110939296
+  nfiles: 5
+  hash: md5
+  path: source_sep_formatted
