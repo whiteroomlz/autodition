@@ -1,0 +1,6 @@
+outs:
+- md5: 989f0d92b67e7dfc7520f0dded3ddc16.dir
+  size: 655518122
+  nfiles: 2561
+  hash: md5
+  path: dcunet_dataset
