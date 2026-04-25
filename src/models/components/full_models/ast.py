@@ -1,3 +1,10 @@
+"""AST classifier stage for waveform inputs.
+
+Inputs: a single padded waveform field with mask metadata.
+Outputs: classification logits under the configured output slot.
+Assumptions: pretrained Hugging Face assets are reachable or already cached locally.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Sequence
@@ -68,11 +75,12 @@ class ASTAudioClassifier(HeadStage):
         model = self._get_model()
         feature_extractor = self._get_feature_extractor()
         raw_waveforms = self._normalize_raw_waveforms(slot)
-        feature_extractor_output = feature_extractor(
-            raw_waveforms,
-            sampling_rate=self.sample_rate,
-            return_tensors="pt",
-        )
+        with torch.autocast(device_type=self._get_autocast_device_type(), enabled=False):
+            feature_extractor_output = feature_extractor(
+                raw_waveforms,
+                sampling_rate=self.sample_rate,
+                return_tensors="pt",
+            )
         feature_extractor_output = {
             key: value.to(self._get_model_device()) if torch.is_tensor(value) else value
             for key, value in feature_extractor_output.items()
@@ -141,6 +149,10 @@ class ASTAudioClassifier(HeadStage):
 
     def _get_model_device(self) -> torch.device:
         return next(self._get_model().parameters()).device
+
+    def _get_autocast_device_type(self) -> str:
+        device_type = self._get_model_device().type
+        return "cuda" if device_type == "cuda" else device_type
 
     def _get_model(self) -> ASTForAudioClassification:
         if self.model is None:

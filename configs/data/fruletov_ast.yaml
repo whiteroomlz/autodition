@@ -1,0 +1,26 @@
+defaults:
+  - schema: fruletov_waveform.yaml
+  - raw_data: fruletov.yaml
+  - collator: schema_collator.yaml
+  - _self_
+
+_target_: src.data.datamodule.AudioDataModule
+
+audio_path_key: audio_path
+audio_root_dir: ${paths.preprocessed_data_dir}/fruletov
+target_sr: 16000
+clip_duration_seconds: 10.0
+waveform_field_name: waveform
+spectrogram_field_name: null
+mel_spectrogram_cfg: null
+
+train_batch_size: 4
+val_batch_size: 4
+test_batch_size: 4
+num_workers: 8
+pin_memory: True
+prefetch_factor: null
+persistent_workers: false
+use_train_balance_sampler: false
+balance_on_field: null
+
