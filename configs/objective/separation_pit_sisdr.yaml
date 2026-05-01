@@ -1,0 +1,46 @@
+_target_: src.models.components.objectives.ObjectiveComposer
+
+terms:
+  - _target_: src.models.components.objectives.PermutationInvariantLossTerm
+    name: separation
+    prediction_ref:
+      _target_: src.models.components.base.Ref
+      source: pred
+      name: ${model.prediction_name}
+    target_ref:
+      _target_: src.models.components.base.Ref
+      source: field
+      name: ${data.schema.fields.sources_audio.name}
+    activity_ref:
+      _target_: src.models.components.base.Ref
+      source: field
+      name: ${data.schema.fields.source_activity.name}
+    mask_ref:
+      _target_: src.models.components.base.Ref
+      source: mask
+      name: ${data.schema.fields.sources_audio.name}
+    criterion:
+      _target_: src.models.components.objectives.NegativeSISDRCriterion
+    inactive_criterion:
+      _target_: src.models.components.objectives.MeanSquaredErrorCriterion
+    inactive_weight: 0.0
+
+  - _target_: src.models.components.objectives.SummedSourcesConsistencyLossTerm
+    name: mixture_consistency
+    sources_ref:
+      _target_: src.models.components.base.Ref
+      source: pred
+      name: ${model.prediction_name}
+    target_ref:
+      _target_: src.models.components.base.Ref
+      source: field
+      name: ${data.schema.fields.mixture_audio.name}
+    mask_ref:
+      _target_: src.models.components.base.Ref
+      source: mask
+      name: ${data.schema.fields.mixture_audio.name}
+    criterion:
+      _target_: src.models.components.objectives.L1Criterion
+    loss_weight:
+      _target_: src.models.components.objectives.ConstantLossWeight
+      value: 0.1

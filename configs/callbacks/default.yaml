@@ -11,11 +11,12 @@ model_checkpoint:
   monitor: ${model.monitor_metric}
   mode: "max"
   save_last: True
+  save_top_k: 1
   auto_insert_metric_name: False
 
 early_stopping:
   monitor: ${model.monitor_metric}
-  patience: 100
+  patience: 5
   mode: "max"
 
 model_summary:

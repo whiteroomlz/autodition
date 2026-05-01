@@ -2,6 +2,8 @@
 __pycache__/
 .hydra/
 outputs/
+artifacts/
+checkpoints/
 *.py[cod]
 *$py.class
 

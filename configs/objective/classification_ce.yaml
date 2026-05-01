@@ -1,0 +1,15 @@
+_target_: src.models.components.objectives.ObjectiveComposer
+
+terms:
+  - _target_: src.models.components.objectives.SupervisedLossTerm
+    name: classification
+    prediction_ref:
+      _target_: src.models.components.base.Ref
+      source: pred
+      name: ${model.prediction_name}
+    target_ref:
+      _target_: src.models.components.base.Ref
+      source: field
+      name: ${data.schema.fields.class_id.name}
+    criterion:
+      _target_: src.models.components.objectives.CrossEntropyCriterion

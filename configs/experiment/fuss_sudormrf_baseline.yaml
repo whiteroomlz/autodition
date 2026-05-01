@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - override /data: fuss_separation
+  - override /model: fuss_sudormrf_small
+  - override /callbacks: default
+  - override /trainer: gpu
+  - override /logger: mlflow
+
+tags: ["audio", "fuss", "source-separation", "sudormrf", "baseline"]
+
+seed: 12345
+
+data:
+  train_batch_size: 8
+  val_batch_size: 8
+  test_batch_size: 8
+
+trainer:
+  max_epochs: 100
+  gradient_clip_val: 1.0
+
+logger:
+  mlflow:
+    run_name: fuss_sudormrf_baseline

@@ -1,0 +1,37 @@
+_target_: src.data.components.schema.Schema
+
+fields:
+  waveform:
+    _target_: src.data.components.schema.FieldSpec
+    name: waveform
+    role: input
+    value:
+      _target_: src.data.components.schema.TensorValueSpec
+      dtype:
+        _target_: src.utils.utils.torch_dtype
+        dtype: float32
+    shape:
+      _target_: src.data.components.schema.TensorShapeSpec
+      axes: [time]
+      variable_axes: [time]
+    batching:
+      _target_: src.data.components.schema.PadBatchingSpec
+      variable_axis: time
+      pad_value: 0.0
+    required: true
+
+  class_id:
+    _target_: src.data.components.schema.FieldSpec
+    name: class_id
+    role: supervision
+    value:
+      _target_: src.data.components.schema.CategoricalValueSpec
+      dtype:
+        _target_: src.utils.utils.torch_dtype
+        dtype: long
+      cardinality: 10
+    shape:
+      _target_: src.data.components.schema.ScalarShapeSpec
+    batching:
+      _target_: src.data.components.schema.StackBatchingSpec
+    required: true

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Tuple
 import hydra
 import pytorch_lightning as pl
 import rootutils
+import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers import Logger
@@ -34,6 +35,7 @@ from src.utils import (
     log_hyperparameters,
     task_wrapper,
 )
+from src.utils.checkpointing import register_torch_safe_globals
 from src.utils.version_control import (
     get_dvc_hash,
     validate_dataset,
@@ -41,6 +43,10 @@ from src.utils.version_control import (
 )
 
 log = RankedLogger(__name__, log_on_rank_zero_only=True)
+register_torch_safe_globals()
+
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision("high")
 
 try:
     OmegaConf.register_new_resolver("eval", eval)  # example: ${eval:${model.net.emb_dim} * 2}
@@ -112,13 +118,13 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../../configs", config_name="eval.yaml")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="eval.yaml")
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
     :param cfg: DictConfig configuration composed by Hydra.
     """
-    if cfg.get("debug", None) is None:
+    if cfg.get("validate_data", True) and cfg.get("debug", None) is None:
         log.info("Running data validation...")
         validate_dvc_status(root)
         is_valid, remote_dvc_content = validate_dataset(root=root, cfg=cfg)

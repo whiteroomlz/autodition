@@ -1,0 +1,66 @@
+# @package _global_
+
+defaults:
+  - override /data: us8k
+  - override /model: us8k_cnn_small
+  - override /callbacks: default
+  - override /trainer: gpu
+  - override /logger: mlflow
+
+tags: ["audio", "urbansound8k", "cnn", "baseline"]
+
+seed: 12345
+
+data:
+  clip_duration_seconds: 4.0
+  train_batch_size: 48
+  val_batch_size: 64
+  test_batch_size: 64
+  use_train_balance_sampler: true
+  balance_on_field: class_id
+  waveform_augmentations_cfg:
+    _recursive_: false
+    _target_: src.utils.instantiators.skip_insantiation_helper
+    obj:
+      _target_: src.data.components.preprocessing.audio.Pipeline
+      preprocessing_units:
+        - _target_: src.data.components.preprocessing.audio.RandomGain
+          min_gain_db: -5.0
+          max_gain_db: 5.0
+          p: 0.5
+        - _target_: src.data.components.preprocessing.audio.AdditiveNoise
+          snr_db_min: 18.0
+          snr_db_max: 35.0
+          p: 0.35
+        - _target_: src.data.components.preprocessing.audio.RandomTimeShift
+          max_shift_seconds: 0.15
+          sample_rate: ${data.target_sr}
+          p: 0.5
+  spectrogram_augmentations_cfg:
+    _recursive_: false
+    _target_: src.utils.instantiators.skip_insantiation_helper
+    obj:
+      _target_: src.data.components.preprocessing.audio.Pipeline
+      preprocessing_units:
+        - _target_: src.data.components.preprocessing.audio.FrequencyMasking
+          freq_mask_param: 16
+          p: 0.5
+        - _target_: src.data.components.preprocessing.audio.TimeMasking
+          time_mask_param: 24
+          p: 0.5
+
+trainer:
+  max_epochs: 60
+  gradient_clip_val: 1.0
+
+model:
+  warmup_type: linear
+  warmup_rate: 0.05
+
+logger:
+  mlflow:
+    run_name: us8k_cnn_baseline_tuned
+
+callbacks:
+  early_stopping:
+    patience: 8

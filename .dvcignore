@@ -3,3 +3,5 @@
 # https://dvc.org/doc/user-guide/dvcignore
 
 __pycache__
+_downloads
+logs

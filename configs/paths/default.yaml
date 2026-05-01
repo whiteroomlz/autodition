@@ -1,10 +1,14 @@
 # path to root directory
-# this requires PROJECT_ROOT environment variable to exist
-# you can replace it with "." if you want the root to be the current working directory
+# PROJECT_ROOT is normally injected by rootutils and can also be set in .env
 root_dir: ${oc.env:PROJECT_ROOT}
 
-# path to data directory
-data_dir: ${paths.root_dir}/data/preprocessed/
+# optional data anchors loaded from .env
+data_root: ${oc.env:DATA_ROOT,${paths.root_dir}/data}
+raw_data_dir: ${oc.env:RAW_DATA_DIR,${paths.data_root}/raw}
+preprocessed_data_dir: ${oc.env:PREPROCESSED_DATA_DIR,${paths.data_root}/preprocessed}
+
+# backward-compatible alias for preprocessed data
+data_dir: ${paths.preprocessed_data_dir}
 
 # path to logging directory
 log_dir: ${paths.root_dir}/logs/

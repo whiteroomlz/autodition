@@ -1,9 +1,14 @@
-_target_: src.models.audio_classification_module.AudioClassificationModule
+defaults:
+  - /objective@objectives: classification_ce
+  - /metrics@metrics: classification_multiclass
+  - _self_
 
-num_classes: 10
-target_name: class_id
+_target_: src.models.task_module.TaskModule
+
+prediction_name: class_logits
 compile: false
 monitor_metric: val/acc
+monitor_metric_mode: max
 warmup_type: null
 warmup_rate: null
 
@@ -19,21 +24,29 @@ scheduler:
   T_max: 50
   eta_min: 1e-6
 
-net:
-  _target_: src.models.components.base.Model
+model:
+  _target_: src.models.components.base.PipelineModel
 
-  input_block:
-    _target_: src.models.components.input_blocks.passthrough.SequentialNumericalPassthrough
+  stages:
+    - _target_: src.models.components.base.BlockModel
+      inputs:
+        - _target_: src.models.components.base.Ref
+          source: field
+          name: ${data.schema.fields.mel_spectrogram.name}
+      output_name: ${model.prediction_name}
+      store: pred
 
-  hidden_blocks:
-    - _target_: src.models.components.hidden_blocks.sequential_pooling.Pooling
-      emb_dim: ${data.mel_spectrogram_cfg.obj.n_mels}
+      input_block:
+        _target_: src.models.components.input_blocks.passthrough.SequentialNumericalPassthrough
 
-  output_block:
-    _target_: src.models.components.output_blocks.classifiers.flat_linear.FlatLinearClassifier
-    # MaxMinMeanPooling (default) triples the emb_dim
-    emb_dim: ${eval:${data.mel_spectrogram_cfg.obj.n_mels} * 3}
-    n_layers: 2
-    dropout: 0.1
-    activation: gelu
-    num_classes: ${model.num_classes}
+      hidden_blocks:
+        - _target_: src.models.components.hidden_blocks.sequential_pooling.Pooling
+          emb_dim: ${data.mel_spectrogram_cfg.obj.n_mels}
+
+      output_block:
+        _target_: src.models.components.output_blocks.classifiers.flat_linear.FlatLinearClassifier
+        emb_dim: ${eval:${data.mel_spectrogram_cfg.obj.n_mels} * 3}
+        n_layers: 2
+        dropout: 0.1
+        activation: gelu
+        num_classes: ${data.schema.fields.class_id.value.cardinality}

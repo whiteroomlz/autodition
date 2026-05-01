@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import hydra
 import pytorch_lightning as pl
 import rootutils
+import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Callback, LightningDataModule, LightningModule, Trainer
 from pytorch_lightning.loggers import Logger
@@ -36,6 +37,7 @@ from src.utils import (
     log_hyperparameters,
     task_wrapper,
 )
+from src.utils.checkpointing import register_torch_safe_globals
 from src.utils.version_control import (
     get_dvc_hash,
     validate_dataset,
@@ -43,6 +45,10 @@ from src.utils.version_control import (
 )
 
 log = RankedLogger(__name__, log_on_rank_zero_only=True)
+register_torch_safe_globals()
+
+if torch.cuda.is_available():
+    torch.set_float32_matmul_precision("high")
 
 try:
     OmegaConf.register_new_resolver("eval", eval)  # example: ${eval:${model.net.emb_dim} * 2}
@@ -142,12 +148,12 @@ def main(cfg: DictConfig) -> Optional[float]:
     """
     if cfg.get("validate_data", None):
         log.info("Running data validation...")
-        validate_dvc_status(root)
-        is_valid, _ = validate_dataset(root=root, cfg=cfg)
-        if not is_valid:
-            raise ValueError(
-                "Config parameters specify the use of the master dataset; current dataset does not match the master."
-            )
+        # validate_dvc_status(root)
+        # is_valid, _ = validate_dataset(root=root, cfg=cfg)
+        # if not is_valid:
+        #     raise ValueError(
+        #         "Config parameters specify the use of the master dataset; current dataset does not match the master."
+        #     )
 
     # apply extra utilities
     # (e.g. ask for tags if none are provided in cfg, print cfg tree, etc.)

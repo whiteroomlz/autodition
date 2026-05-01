@@ -1,3 +1,0 @@
-_target_: src.data.components.collate.DynamicLengthCollator
-feature_schema: ${data.feature_schema}
-target_schema: ${data.target_schema}

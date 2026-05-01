@@ -1,0 +1,32 @@
+_target_: src.models.components.metrics.MetricSuite
+
+terms:
+  - _target_: src.models.components.metrics.SupervisedMetricTerm
+    name: acc
+    prediction_ref:
+      _target_: src.models.components.base.Ref
+      source: pred
+      name: ${model.prediction_name}
+    target_ref:
+      _target_: src.models.components.base.Ref
+      source: field
+      name: ${data.schema.fields.class_id.name}
+    metric:
+      _target_: torchmetrics.classification.MulticlassAccuracy
+      num_classes: ${data.schema.fields.class_id.value.cardinality}
+      average: macro
+
+  - _target_: src.models.components.metrics.SupervisedMetricTerm
+    name: f1
+    prediction_ref:
+      _target_: src.models.components.base.Ref
+      source: pred
+      name: ${model.prediction_name}
+    target_ref:
+      _target_: src.models.components.base.Ref
+      source: field
+      name: ${data.schema.fields.class_id.name}
+    metric:
+      _target_: torchmetrics.classification.MulticlassF1Score
+      num_classes: ${data.schema.fields.class_id.value.cardinality}
+      average: macro

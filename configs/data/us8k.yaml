@@ -1,14 +1,17 @@
 defaults:
-  - feature_schema: us8k.yaml
-  - target_schema: us8k.yaml
+  - schema: us8k_spectrogram.yaml
   - raw_data: us8k.yaml
-  - collator: dynamic_collator.yaml
+  - collator: schema_collator.yaml
   - _self_
 
 _target_: src.data.datamodule.AudioDataModule
 
 audio_path_key: audio_path
+audio_root_dir: ${paths.raw_data_dir}/UrbanSound8K
 target_sr: 16000
+clip_duration_seconds: 4.0
+waveform_field_name: null
+spectrogram_field_name: mel_spectrogram
 
 mel_spectrogram_cfg:
   _recursive_: false
@@ -22,32 +25,6 @@ mel_spectrogram_cfg:
     f_min: 0.0
     f_max: null
 
-# waveform_augmentations_cfg:
-#   _target_: src.data.components.preprocessing.audio.Pipeline
-#   preprocessing_units:
-#     - _target_: src.data.components.preprocessing.audio.RandomGain
-#       min_gain_db: -6.0
-#       max_gain_db: 6.0
-#       p: 0.5
-#     - _target_: src.data.components.preprocessing.audio.AdditiveNoise
-#       snr_db_min: 10.0
-#       snr_db_max: 30.0
-#       p: 0.5
-#     - _target_: src.data.components.preprocessing.audio.RandomTimeShift
-#       max_shift_seconds: 0.1
-#       sample_rate: ${data.target_sr}
-#       p: 0.5
-
-# spectrogram_augmentations_cfg:
-#   _target_: src.data.components.preprocessing.audio.Pipeline
-#   preprocessing_units:
-#     - _target_: src.data.components.preprocessing.audio.FrequencyMasking
-#       freq_mask_param: 15
-#       p: 0.5
-#     - _target_: src.data.components.preprocessing.audio.TimeMasking
-#       time_mask_param: 40
-#       p: 0.5
-
 train_batch_size: 32
 val_batch_size: 32
 test_batch_size: 32
@@ -56,3 +33,4 @@ pin_memory: True
 prefetch_factor: null
 persistent_workers: false
 use_train_balance_sampler: false
+balance_on_field: null

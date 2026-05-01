@@ -2,7 +2,7 @@
 
 defaults:
   - _self_
-  - data: default
+  - data: us8k
   - model: audio_classification
   - callbacks: null
   - logger: null

@@ -1,0 +1,57 @@
+defaults:
+  - /objective@objectives: classification_ce
+  - /metrics@metrics: classification_multiclass
+  - _self_
+
+_target_: src.models.task_module.TaskModule
+
+prediction_name: class_logits
+compile: false
+monitor_metric: val/acc
+monitor_metric_mode: max
+warmup_type: null
+warmup_rate: null
+
+optimizer:
+  _target_: torch.optim.AdamW
+  _partial_: true
+  lr: 2e-4
+  weight_decay: 3e-4
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  _partial_: true
+  T_max: 80
+  eta_min: 1e-6
+
+model:
+  _target_: src.models.components.base.PipelineModel
+
+  stages:
+    - _target_: src.models.components.base.BlockModel
+      inputs:
+        - _target_: src.models.components.base.Ref
+          source: field
+          name: ${data.schema.fields.mel_spectrogram.name}
+      output_name: ${model.prediction_name}
+      store: pred
+
+      input_block:
+        _target_: src.models.components.input_blocks.spectrogram_cnn.SpectrogramCNNEncoder
+        channels: [32, 64, 128, 192]
+        embedding_dim: 384
+        kernel_size: 3
+        dropout: 0.2
+        activation: gelu
+        use_batch_norm: true
+        global_pool: avgmax
+
+      hidden_blocks: []
+
+      output_block:
+        _target_: src.models.components.output_blocks.classifiers.flat_linear.FlatLinearClassifier
+        emb_dim: ${model.model.stages.0.input_block.embedding_dim}
+        n_layers: 2
+        dropout: 0.35
+        activation: gelu
+        num_classes: ${data.schema.fields.class_id.value.cardinality}

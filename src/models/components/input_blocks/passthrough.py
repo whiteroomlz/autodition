@@ -1,27 +1,19 @@
-from src.models.components.base import (
-    FlatForwardState,
-    FlatInputBlock,
-    ModelInput,
-    SequentialForwardState,
-    SequentialInputBlock,
-    SequentialModelInput,
-)
+from __future__ import annotations
+
+from src.models.components.base import InputBlock, ModelContext, TensorSlot, ensure_single_input
 
 
-class FlatNumericalPassthrough(FlatInputBlock):
-    """Pass numerical features directly as a flat forward state (B x F)."""
+class FlatNumericalPassthrough(InputBlock):
+    """Pass a fixed-size tensor through unchanged."""
 
-    def forward(self, x: ModelInput) -> FlatForwardState:
-        return FlatForwardState(hidden_state=x.numerical)
+    def forward(self, inputs: tuple[TensorSlot, ...], context: ModelContext) -> TensorSlot:
+        slot = ensure_single_input(inputs, self.__class__.__name__)
+        return TensorSlot(value=slot.value, mask=slot.mask)
 
 
-class SequentialNumericalPassthrough(SequentialInputBlock):
-    """Pass numerical features directly as a sequential forward state (B x L x F).
+class SequentialNumericalPassthrough(InputBlock):
+    """Pass a variable-length tensor through unchanged, preserving its mask."""
 
-    Expects SequentialModelInput with padding_mask.
-    """
-
-    def forward(self, x: SequentialModelInput) -> SequentialForwardState:
-        return SequentialForwardState(
-            hidden_state=x.numerical, padding_mask=x.padding_mask
-        )
+    def forward(self, inputs: tuple[TensorSlot, ...], context: ModelContext) -> TensorSlot:
+        slot = ensure_single_input(inputs, self.__class__.__name__)
+        return TensorSlot(value=slot.value, mask=slot.mask)

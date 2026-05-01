@@ -1,24 +1,24 @@
 _target_: src.data.datamodule.RawData
 _recursive_: false
 
-dataset_dir: ${paths.data_dir}/urbansound8k/
+dataset_dir: ${paths.preprocessed_data_dir}/urbansound8k/
 
 feature_data_cfg:
   _target_: src.data.components.raw_data.PickleReader
-  data_source: ${paths.data_dir}/urbansound8k/features.pkl
+  data_source: ${paths.preprocessed_data_dir}/urbansound8k/features.pkl
 
 target_data_cfg:
   _target_: src.data.components.raw_data.PickleReader
-  data_source: ${paths.data_dir}/urbansound8k/targets.pkl
+  data_source: ${paths.preprocessed_data_dir}/urbansound8k/targets.pkl
 
 train_keys_cfg:
   _target_: src.data.components.raw_data.PickleReader
-  data_source: ${paths.data_dir}/urbansound8k/train_keys.pkl
+  data_source: ${paths.preprocessed_data_dir}/urbansound8k/train_keys.pkl
 
 val_keys_cfg:
   _target_: src.data.components.raw_data.PickleReader
-  data_source: ${paths.data_dir}/urbansound8k/val_keys.pkl
+  data_source: ${paths.preprocessed_data_dir}/urbansound8k/val_keys.pkl
 
 test_keys_cfg:
   _target_: src.data.components.raw_data.PickleReader
-  data_source: ${paths.data_dir}/urbansound8k/test_keys.pkl
+  data_source: ${paths.preprocessed_data_dir}/urbansound8k/test_keys.pkl

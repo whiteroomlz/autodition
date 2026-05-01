@@ -1,0 +1,24 @@
+_target_: src.data.datamodule.RawData
+_recursive_: false
+
+dataset_dir: ${paths.preprocessed_data_dir}/fuss/
+
+feature_data_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fuss/features.pkl
+
+target_data_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fuss/targets.pkl
+
+train_keys_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fuss/train_keys.pkl
+
+val_keys_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fuss/val_keys.pkl
+
+test_keys_cfg:
+  _target_: src.data.components.raw_data.PickleReader
+  data_source: ${paths.preprocessed_data_dir}/fuss/test_keys.pkl

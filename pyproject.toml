@@ -39,6 +39,9 @@ dependencies = [
     "omegaconf>=2.3",
     "einops>=0.8",
     "scikit-learn>=1.5",
+    "transformers>=4.57",
+    "onnx>=1.17",
+    "onnxscript>=0.1",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +53,9 @@ dev = [
     "notebook>=7.3",
     "nbstripout>=0.8",
     "datasets>=3.0",
+    "kaggle>=1.7",
     "commitizen>=4.1",
+    "ipykernel"
 ]
 
 [build-system]
