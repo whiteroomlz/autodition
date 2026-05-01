@@ -16,6 +16,7 @@ from src.models.components.base import (
     TensorSlot,
     ensure_single_input,
 )
+from src.models.components.separation import project_sources_to_mixture
 
 
 def _activation(name: str, channels: int | None = None) -> nn.Module:
@@ -87,7 +88,9 @@ class _GridNetBlock(nn.Module):
         in_channels = emb_dim * emb_kernel_size
 
         self.intra_norm = _LayerNormalization4D(emb_dim, eps=eps)
-        self.intra_rnn = nn.LSTM(in_channels, hidden_channels, batch_first=True, bidirectional=True)
+        self.intra_rnn = nn.LSTM(
+            in_channels, hidden_channels, batch_first=True, bidirectional=True
+        )
         self.intra_linear = nn.ConvTranspose1d(
             hidden_channels * 2,
             emb_dim,
@@ -96,7 +99,9 @@ class _GridNetBlock(nn.Module):
         )
 
         self.inter_norm = _LayerNormalization4D(emb_dim, eps=eps)
-        self.inter_rnn = nn.LSTM(in_channels, hidden_channels, batch_first=True, bidirectional=True)
+        self.inter_rnn = nn.LSTM(
+            in_channels, hidden_channels, batch_first=True, bidirectional=True
+        )
         self.inter_linear = nn.ConvTranspose1d(
             hidden_channels * 2,
             emb_dim,
@@ -150,7 +155,12 @@ class _GridNetBlock(nn.Module):
         )
         x = F.pad(inputs, (0, padded_freq - original_freq, 0, padded_time - original_time))
 
-        intra_inputs = self.intra_norm(x).transpose(1, 2).contiguous().view(batch_size * padded_time, channels, padded_freq)
+        intra_inputs = (
+            self.intra_norm(x)
+            .transpose(1, 2)
+            .contiguous()
+            .view(batch_size * padded_time, channels, padded_freq)
+        )
         intra_inputs = F.unfold(
             intra_inputs[..., None],
             (self.emb_kernel_size, 1),
@@ -158,10 +168,19 @@ class _GridNetBlock(nn.Module):
         ).transpose(1, 2)
         intra_outputs, _ = self.intra_rnn(intra_inputs)
         intra_outputs = self.intra_linear(intra_outputs.transpose(1, 2))
-        intra_outputs = intra_outputs.view(batch_size, padded_time, channels, padded_freq).transpose(1, 2).contiguous()
+        intra_outputs = (
+            intra_outputs.view(batch_size, padded_time, channels, padded_freq)
+            .transpose(1, 2)
+            .contiguous()
+        )
         intra_outputs = intra_outputs + x
 
-        inter_inputs = self.inter_norm(intra_outputs).permute(0, 3, 1, 2).contiguous().view(batch_size * padded_freq, channels, padded_time)
+        inter_inputs = (
+            self.inter_norm(intra_outputs)
+            .permute(0, 3, 1, 2)
+            .contiguous()
+            .view(batch_size * padded_freq, channels, padded_time)
+        )
         inter_inputs = F.unfold(
             inter_inputs[..., None],
             (self.emb_kernel_size, 1),
@@ -169,13 +188,21 @@ class _GridNetBlock(nn.Module):
         ).transpose(1, 2)
         inter_outputs, _ = self.inter_rnn(inter_inputs)
         inter_outputs = self.inter_linear(inter_outputs.transpose(1, 2))
-        inter_outputs = inter_outputs.view(batch_size, padded_freq, channels, padded_time).permute(0, 2, 3, 1).contiguous()
+        inter_outputs = (
+            inter_outputs.view(batch_size, padded_freq, channels, padded_time)
+            .permute(0, 2, 3, 1)
+            .contiguous()
+        )
         inter_outputs = inter_outputs + intra_outputs
         inter_outputs = inter_outputs[..., :original_time, :original_freq]
 
-        queries = torch.cat([projection(inter_outputs) for projection in self.query_projections], dim=0)
+        queries = torch.cat(
+            [projection(inter_outputs) for projection in self.query_projections], dim=0
+        )
         keys = torch.cat([projection(inter_outputs) for projection in self.key_projections], dim=0)
-        values = torch.cat([projection(inter_outputs) for projection in self.value_projections], dim=0)
+        values = torch.cat(
+            [projection(inter_outputs) for projection in self.value_projections], dim=0
+        )
 
         queries = queries.transpose(1, 2).flatten(start_dim=2)
         keys = keys.transpose(1, 2).flatten(start_dim=2)
@@ -189,7 +216,9 @@ class _GridNetBlock(nn.Module):
         values = values.reshape(original_value_shape).transpose(1, 2)
 
         values = values.view(self.num_heads, batch_size, values.shape[1], original_time, -1)
-        values = values.transpose(0, 1).contiguous().view(batch_size, self.emb_dim, original_time, -1)
+        values = (
+            values.transpose(0, 1).contiguous().view(batch_size, self.emb_dim, original_time, -1)
+        )
         outputs = self.concat_projection(values)
         return outputs + inter_outputs
 
@@ -209,6 +238,7 @@ class _TFGridNetCore(nn.Module):
         approx_qk_dim: int,
         activation: str,
         eps: float,
+        output_projection_init_gain: float = 1.0,
     ) -> None:
         super().__init__()
         if n_fft % 2 != 0:
@@ -247,6 +277,12 @@ class _TFGridNetCore(nn.Module):
             kernel_size=(3, 3),
             padding=(1, 1),
         )
+        if output_projection_init_gain != 1.0:
+            nn.init.xavier_uniform_(
+                self.output_projection.weight, gain=output_projection_init_gain
+            )
+            if self.output_projection.bias is not None:
+                nn.init.zeros_(self.output_projection.bias)
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
         original_length = waveform.shape[-1]
@@ -310,8 +346,13 @@ class TFGridNetSeparator(HeadStage):
         approx_qk_dim: int = 256,
         activation: str = "prelu",
         eps: float = 1e-5,
+        enforce_mixture_consistency: bool = False,
+        mixture_residual_connection: bool = False,
+        output_projection_init_gain: float = 1.0,
     ) -> None:
         super().__init__(inputs=inputs, outputs=(output_name,))
+        self.enforce_mixture_consistency = enforce_mixture_consistency
+        self.mixture_residual_connection = mixture_residual_connection
         self.core = _TFGridNetCore(
             num_sources=num_sources,
             n_fft=n_fft,
@@ -325,6 +366,7 @@ class TFGridNetSeparator(HeadStage):
             approx_qk_dim=approx_qk_dim,
             activation=activation,
             eps=eps,
+            output_projection_init_gain=output_projection_init_gain,
         )
 
     def forward(self, context: ModelContext) -> ModelContext:
@@ -336,9 +378,18 @@ class TFGridNetSeparator(HeadStage):
             raise ValueError("TFGridNetSeparator expects waveform tensors shaped [batch, time]")
 
         estimated_sources = self.core(slot.value)
+        if self.mixture_residual_connection:
+            estimated_sources = estimated_sources.clone()
+            estimated_sources[:, 0, :] = estimated_sources[:, 0, :] + slot.value
         if slot.mask is not None:
             estimated_sources = estimated_sources * slot.mask[:, None, :].to(
                 dtype=estimated_sources.dtype
+            )
+        if self.enforce_mixture_consistency:
+            estimated_sources = project_sources_to_mixture(
+                estimated_sources,
+                slot.value,
+                mask=slot.mask,
             )
 
         context.write(

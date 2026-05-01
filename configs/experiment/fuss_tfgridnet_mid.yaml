@@ -2,19 +2,19 @@
 
 defaults:
   - override /data: fuss_separation
-  - override /model: fuss_tfgridnet_small
+  - override /model: fuss_tfgridnet_mid
   - override /callbacks: default
   - override /trainer: gpu
   - override /logger: mlflow
 
-tags: ["audio", "fuss", "source-separation", "tfgridnet"]
+tags: ["audio", "fuss", "source-separation", "tfgridnet", "mid"]
 
 seed: 12345
 
 data:
-  train_batch_size: 4
-  val_batch_size: 4
-  test_batch_size: 4
+  train_batch_size: 2
+  val_batch_size: 2
+  test_batch_size: 2
 
 trainer:
   max_epochs: 120
@@ -22,4 +22,4 @@ trainer:
 
 logger:
   mlflow:
-    run_name: fuss_tfgridnet_small
+    run_name: fuss_tfgridnet_mid

@@ -38,6 +38,7 @@ class ASTAudioClassifier(HeadStage):
         std: float = 4.5689974,
         attn_implementation: Optional[str] = "sdpa",
         model_config: Optional[Dict[str, Any]] = None,
+        setup_feature_extractor: bool = True,
     ) -> None:
         super().__init__(inputs=inputs, outputs=(output_name,))
 
@@ -51,16 +52,21 @@ class ASTAudioClassifier(HeadStage):
         self.std = std
         self.attn_implementation = attn_implementation
         self.model_config = dict(model_config or {})
+        self.setup_feature_extractor = setup_feature_extractor
 
         self.model: Optional[ASTForAudioClassification] = None
         self.feature_extractor: Optional[ASTFeatureExtractor] = None
 
     def setup(self) -> None:
-        if self.model is not None and self.feature_extractor is not None:
+        if self.model is not None and (
+            not self.setup_feature_extractor or self.feature_extractor is not None
+        ):
             return
 
-        self.model = self._build_model(self.model_config)
-        self.feature_extractor = self._build_feature_extractor()
+        if self.model is None:
+            self.model = self._build_model(self.model_config)
+        if self.setup_feature_extractor and self.feature_extractor is None:
+            self.feature_extractor = self._build_feature_extractor()
 
     def forward(self, context: ModelContext) -> ModelContext:
         slot = ensure_single_input(

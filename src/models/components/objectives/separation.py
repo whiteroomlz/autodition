@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Dict, Sequence
 
 import torch
@@ -26,8 +27,13 @@ class NegativeSISDRCriterion(Criterion):
         super().__init__()
         self.eps = eps
 
-    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return -compute_si_sdr(prediction, target, eps=self.eps)
+    def forward(
+        self,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        mask: torch.BoolTensor | None = None,
+    ) -> torch.Tensor:
+        return -compute_si_sdr(prediction, target, mask=mask, eps=self.eps)
 
 
 class MultiResolutionSTFTCriterion(Criterion):
@@ -53,11 +59,21 @@ class MultiResolutionSTFTCriterion(Criterion):
         self.log_magnitude_weight = log_magnitude_weight
         self.eps = eps
 
-    def forward(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        mask: torch.BoolTensor | None = None,
+    ) -> torch.Tensor:
         if prediction.shape != target.shape:
             raise ValueError("MultiResolutionSTFTCriterion expects matching prediction/target")
         if prediction.ndim != 2:
             raise ValueError("MultiResolutionSTFTCriterion expects tensors shaped [batch, time]")
+
+        if mask is not None:
+            mask = mask.to(device=prediction.device, dtype=prediction.dtype)
+            prediction = prediction * mask
+            target = target * mask
 
         total_loss = prediction.new_zeros(prediction.shape[0])
         for fft_size, hop_size, win_length in zip(
@@ -65,7 +81,9 @@ class MultiResolutionSTFTCriterion(Criterion):
             self.hop_sizes,
             self.win_lengths,
         ):
-            window = torch.hann_window(win_length, device=prediction.device, dtype=prediction.dtype)
+            window = torch.hann_window(
+                win_length, device=prediction.device, dtype=prediction.dtype
+            )
             prediction_spec = torch.stft(
                 prediction,
                 n_fft=fft_size,
@@ -86,10 +104,9 @@ class MultiResolutionSTFTCriterion(Criterion):
             prediction_mag = prediction_spec.abs().clamp_min(self.eps)
             target_mag = target_spec.abs().clamp_min(self.eps)
 
-            spectral_convergence = (
-                (target_mag - prediction_mag).square().sum(dim=(-2, -1)).sqrt()
-                / target_mag.square().sum(dim=(-2, -1)).sqrt().clamp_min(self.eps)
-            )
+            spectral_convergence = (target_mag - prediction_mag).square().sum(
+                dim=(-2, -1)
+            ).sqrt() / target_mag.square().sum(dim=(-2, -1)).sqrt().clamp_min(self.eps)
             log_magnitude = (target_mag.log() - prediction_mag.log()).abs().mean(dim=(-2, -1))
             total_loss = total_loss + (
                 self.spectral_convergence_weight * spectral_convergence
@@ -122,6 +139,7 @@ class PermutationInvariantLossTerm(LossTerm):
         self.criterion = criterion
         self.inactive_criterion = inactive_criterion or MeanSquaredErrorCriterion()
         self.inactive_weight = inactive_weight
+        self._criterion_accepts_mask = _criterion_accepts_mask(criterion)
 
     def forward(
         self,
@@ -148,9 +166,13 @@ class PermutationInvariantLossTerm(LossTerm):
         )
 
         if prediction.shape != target.shape:
-            raise ValueError("PermutationInvariantLossTerm expects matching prediction/target shapes")
+            raise ValueError(
+                "PermutationInvariantLossTerm expects matching prediction/target shapes"
+            )
         if prediction.ndim != 3:
-            raise ValueError("PermutationInvariantLossTerm expects tensors shaped [batch, source, time]")
+            raise ValueError(
+                "PermutationInvariantLossTerm expects tensors shaped [batch, source, time]"
+            )
 
         pairwise_active = []
         pairwise_inactive = []
@@ -160,9 +182,10 @@ class PermutationInvariantLossTerm(LossTerm):
             for target_index in range(target.shape[1]):
                 active_row.append(
                     reduce_loss_over_nonbatch_dims(
-                        self.criterion(
+                        self._call_active_criterion(
                             prediction[:, prediction_index, :],
                             target[:, target_index, :],
+                            time_mask,
                         ),
                         mask=time_mask,
                     )
@@ -189,6 +212,16 @@ class PermutationInvariantLossTerm(LossTerm):
 
         _, best_costs = build_best_permutation(pairwise_cost)
         return best_costs.mean() * self.loss_weight(step)
+
+    def _call_active_criterion(
+        self,
+        prediction: torch.Tensor,
+        target: torch.Tensor,
+        mask: torch.BoolTensor | None,
+    ) -> torch.Tensor:
+        if self._criterion_accepts_mask:
+            return self.criterion(prediction, target, mask=mask)
+        return self.criterion(prediction, target)
 
 
 class SummedSourcesConsistencyLossTerm(LossTerm):
@@ -226,3 +259,15 @@ class SummedSourcesConsistencyLossTerm(LossTerm):
         base_loss = self.criterion(summed_sources, target)
         reduced = reduce_loss_over_nonbatch_dims(base_loss, mask=mask).mean()
         return reduced * self.loss_weight(step)
+
+
+def _criterion_accepts_mask(criterion: Criterion) -> bool:
+    try:
+        signature = inspect.signature(criterion.forward)
+    except (TypeError, ValueError):
+        return False
+
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD or name == "mask"
+        for name, parameter in signature.parameters.items()
+    )

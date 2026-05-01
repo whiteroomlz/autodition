@@ -21,7 +21,7 @@ optimizer:
 scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
   _partial_: true
-  T_max: 60
+  T_max: 80
   eta_min: 1e-6
 
 model:

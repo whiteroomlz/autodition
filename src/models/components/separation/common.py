@@ -115,6 +115,26 @@ def sum_sources(sources: torch.Tensor) -> torch.Tensor:
     return sources.sum(dim=1)
 
 
+def project_sources_to_mixture(
+    sources: torch.Tensor,
+    mixture: torch.Tensor,
+    mask: Optional[torch.BoolTensor] = None,
+) -> torch.Tensor:
+    """Project separated sources so their sum exactly matches the mixture."""
+
+    if sources.ndim != 3:
+        raise ValueError("sources must have shape [batch, source, time]")
+    if mixture.ndim != 2:
+        raise ValueError("mixture must have shape [batch, time]")
+    if sources.shape[0] != mixture.shape[0] or sources.shape[-1] != mixture.shape[-1]:
+        raise ValueError("sources and mixture must agree on batch and time dimensions")
+
+    residual = (mixture - sum_sources(sources)) / sources.shape[1]
+    if mask is not None:
+        residual = residual * mask.to(device=sources.device, dtype=sources.dtype)
+    return sources + residual[:, None, :]
+
+
 def infer_source_activity(
     sources: torch.Tensor,
     mask: Optional[torch.BoolTensor] = None,

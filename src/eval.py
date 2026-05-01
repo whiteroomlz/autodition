@@ -118,13 +118,13 @@ def evaluate(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     return metric_dict, object_dict
 
 
-@hydra.main(version_base="1.3", config_path="../../configs", config_name="eval.yaml")
+@hydra.main(version_base="1.3", config_path="../configs", config_name="eval.yaml")
 def main(cfg: DictConfig) -> None:
     """Main entry point for evaluation.
 
     :param cfg: DictConfig configuration composed by Hydra.
     """
-    if cfg.get("debug", None) is None:
+    if cfg.get("validate_data", True) and cfg.get("debug", None) is None:
         log.info("Running data validation...")
         validate_dvc_status(root)
         is_valid, remote_dvc_content = validate_dataset(root=root, cfg=cfg)

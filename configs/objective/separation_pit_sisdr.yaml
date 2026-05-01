@@ -23,7 +23,7 @@ terms:
       _target_: src.models.components.objectives.NegativeSISDRCriterion
     inactive_criterion:
       _target_: src.models.components.objectives.MeanSquaredErrorCriterion
-    inactive_weight: 0.2
+    inactive_weight: 0.0
 
   - _target_: src.models.components.objectives.SummedSourcesConsistencyLossTerm
     name: mixture_consistency

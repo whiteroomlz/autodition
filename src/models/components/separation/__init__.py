@@ -6,6 +6,7 @@ from .common import (
     compute_si_sdr,
     flatten_active_sources,
     infer_source_activity,
+    project_sources_to_mixture,
     reduce_loss_over_nonbatch_dims,
     sum_sources,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "compute_si_sdr",
     "flatten_active_sources",
     "infer_source_activity",
+    "project_sources_to_mixture",
     "reduce_loss_over_nonbatch_dims",
     "sum_sources",
 ]

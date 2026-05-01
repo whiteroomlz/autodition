@@ -40,6 +40,8 @@ dependencies = [
     "einops>=0.8",
     "scikit-learn>=1.5",
     "transformers>=4.57",
+    "onnx>=1.17",
+    "onnxscript>=0.1",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +55,7 @@ dev = [
     "datasets>=3.0",
     "kaggle>=1.7",
     "commitizen>=4.1",
+    "ipykernel"
 ]
 
 [build-system]

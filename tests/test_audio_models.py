@@ -134,6 +134,7 @@ def test_sudormrf_separator_outputs_sources_audio() -> None:
                 upsampling_depth=3,
                 enc_kernel_size=9,
                 enc_num_basis=64,
+                enforce_mixture_consistency=True,
             )
         ]
     )
@@ -146,8 +147,10 @@ def test_sudormrf_separator_outputs_sources_audio() -> None:
         meta={},
     )
     result = model(batch)
+    prediction = result.preds["sources_audio"].value
 
-    assert result.preds["sources_audio"].value.shape == (2, 4, 8000)
+    assert prediction.shape == (2, 4, 8000)
+    assert torch.allclose(prediction.sum(dim=1), batch.fields["mixture_audio"], atol=1e-5)
 
 
 def test_tfgridnet_separator_outputs_sources_audio() -> None:
@@ -166,6 +169,7 @@ def test_tfgridnet_separator_outputs_sources_audio() -> None:
                 emb_hop_size=1,
                 num_heads=4,
                 approx_qk_dim=64,
+                enforce_mixture_consistency=True,
             )
         ]
     )
@@ -178,8 +182,10 @@ def test_tfgridnet_separator_outputs_sources_audio() -> None:
         meta={},
     )
     result = model(batch)
+    prediction = result.preds["sources_audio"].value
 
-    assert result.preds["sources_audio"].value.shape == (2, 4, 2048)
+    assert prediction.shape == (2, 4, 2048)
+    assert torch.allclose(prediction.sum(dim=1), batch.fields["mixture_audio"], atol=1e-5)
 
 
 def test_ast_audio_classifier_requires_setup() -> None:

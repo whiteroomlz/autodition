@@ -11,10 +11,43 @@ tags: ["audio", "urbansound8k", "ast", "finetune"]
 
 seed: 12345
 
+data:
+  waveform_augmentations_cfg:
+    _recursive_: false
+    _target_: src.utils.instantiators.skip_insantiation_helper
+    obj:
+      _target_: src.data.components.preprocessing.audio.Pipeline
+      preprocessing_units:
+        - _target_: src.data.components.preprocessing.audio.RandomGain
+          min_gain_db: -4.0
+          max_gain_db: 4.0
+          p: 0.45
+        - _target_: src.data.components.preprocessing.audio.AdditiveNoise
+          snr_db_min: 20.0
+          snr_db_max: 40.0
+          p: 0.25
+        - _target_: src.data.components.preprocessing.audio.RandomTimeShift
+          max_shift_seconds: 0.1
+          sample_rate: ${data.target_sr}
+          p: 0.4
+
 trainer:
-  max_epochs: 25
+  max_epochs: 20
   gradient_clip_val: 1.0
+
+model:
+  warmup_rate: 0.05
+  optimizer:
+    lr: 8e-6
+    weight_decay: 5e-5
+  scheduler:
+    T_max: 20
+    eta_min: 5e-7
 
 logger:
   mlflow:
-    run_name: us8k_ast_finetune
+    run_name: us8k_ast_finetune_tuned
+
+callbacks:
+  early_stopping:
+    patience: 4

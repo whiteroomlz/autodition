@@ -23,7 +23,7 @@ terms:
       _target_: src.models.components.objectives.NegativeSISDRCriterion
     inactive_criterion:
       _target_: src.models.components.objectives.MeanSquaredErrorCriterion
-    inactive_weight: 0.2
+    inactive_weight: 0.0
 
   - _target_: src.models.components.objectives.PermutationInvariantLossTerm
     name: separation_mrstft
@@ -50,7 +50,7 @@ terms:
       win_lengths: [256, 512, 1024]
     inactive_criterion:
       _target_: src.models.components.objectives.MeanSquaredErrorCriterion
-    inactive_weight: 0.2
+    inactive_weight: 0.0
     loss_weight:
       _target_: src.models.components.objectives.ConstantLossWeight
       value: 0.5

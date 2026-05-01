@@ -13,6 +13,7 @@ from src.models.components.base import (
     TensorSlot,
     ensure_single_input,
 )
+from src.models.components.separation import project_sources_to_mixture
 
 
 class _ConvNormAct(nn.Module):
@@ -91,7 +92,9 @@ class _UBlock(nn.Module):
                 ],
             ]
         )
-        self.upsample = nn.Upsample(scale_factor=2, mode="nearest") if upsampling_depth > 1 else None
+        self.upsample = (
+            nn.Upsample(scale_factor=2, mode="nearest") if upsampling_depth > 1 else None
+        )
         self.expand = _ConvNorm(bottleneck_channels, out_channels, 1)
         self.final_norm = _NormAct(bottleneck_channels)
         self.output_act = _NormAct(out_channels)
@@ -122,6 +125,7 @@ class _SuDORMRFCore(nn.Module):
         enc_kernel_size: int,
         enc_num_basis: int,
         num_sources: int,
+        decoder_init_gain: float = 1.0,
     ) -> None:
         super().__init__()
         self.enc_kernel_size = enc_kernel_size
@@ -174,6 +178,10 @@ class _SuDORMRFCore(nn.Module):
             padding=enc_kernel_size // 2,
             groups=num_sources,
         )
+        if decoder_init_gain != 1.0:
+            nn.init.xavier_uniform_(self.decoder.weight, gain=decoder_init_gain)
+            if self.decoder.bias is not None:
+                nn.init.zeros_(self.decoder.bias)
 
     def forward(self, waveform: torch.Tensor) -> torch.Tensor:
         original_length = waveform.shape[-1]
@@ -217,8 +225,13 @@ class SuDORMRFSeparator(HeadStage):
         upsampling_depth: int = 4,
         enc_kernel_size: int = 21,
         enc_num_basis: int = 256,
+        enforce_mixture_consistency: bool = False,
+        mixture_residual_connection: bool = False,
+        decoder_init_gain: float = 1.0,
     ) -> None:
         super().__init__(inputs=inputs, outputs=(output_name,))
+        self.enforce_mixture_consistency = enforce_mixture_consistency
+        self.mixture_residual_connection = mixture_residual_connection
         self.core = _SuDORMRFCore(
             out_channels=out_channels,
             bottleneck_channels=bottleneck_channels,
@@ -227,6 +240,7 @@ class SuDORMRFSeparator(HeadStage):
             enc_kernel_size=enc_kernel_size,
             enc_num_basis=enc_num_basis,
             num_sources=num_sources,
+            decoder_init_gain=decoder_init_gain,
         )
 
     def forward(self, context: ModelContext) -> ModelContext:
@@ -240,9 +254,18 @@ class SuDORMRFSeparator(HeadStage):
         waveform = slot.value.unsqueeze(1)
         estimated_sources = self.core(waveform)
         estimated_sources = estimated_sources[..., : slot.value.shape[-1]]
+        if self.mixture_residual_connection:
+            estimated_sources = estimated_sources.clone()
+            estimated_sources[:, 0, :] = estimated_sources[:, 0, :] + slot.value
         if slot.mask is not None:
             estimated_sources = estimated_sources * slot.mask[:, None, :].to(
                 dtype=estimated_sources.dtype
+            )
+        if self.enforce_mixture_consistency:
+            estimated_sources = project_sources_to_mixture(
+                estimated_sources,
+                slot.value,
+                mask=slot.mask,
             )
 
         context.write(
