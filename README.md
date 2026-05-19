@@ -5,7 +5,7 @@
 - пайплайн подготовки и предобработки звуковых датасетов (UrbanSound8K, ESC-50, FUSS, целевой датасет дорожных событий Фурлетова, 17 классов);
 - модели классификации значимых акустических событий (свёрточная сеть и Audio Spectrogram Transformer);
 - модели разделения источников (SuDoRM-RF, TF-GridNet) — исследовательский контур для следующей итерации;
-- скрипты экспорта обученных моделей в ONNX для последующей интеграции в сервер инференса [triton_server_autodition](../triton_server_autodition).
+- скрипты экспорта обученных моделей в ONNX для последующей интеграции в сервер инференса triton_server_autodition.
 
 Отделение инференсной части от обучающей сделано сознательно: данный репозиторий целиком про обучение и эксперименты, а боевой инференс крутится в Triton-сервере отдельным репозиторием.
 
@@ -102,7 +102,7 @@ python scripts/export_classification_onnx.py \
     --out furletov_ast_finetune_tuned.onnx
 ```
 
-Получившийся `.onnx`-файл размещается в `model_repository/classifier_*/1/model.onnx` соответствующего класификатора в репозитории [triton_server_autodition](../triton_server_autodition).
+Получившийся `.onnx`-файл размещается в `model_repository/classifier_*/1/model.onnx` соответствующего класификатора в репозитории triton_server_autodition.
 
 ---
 
